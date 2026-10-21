@@ -1,0 +1,16 @@
+[world]
+width = 50
+height = 50
+seed = 42
+
+[agent]
+energy = 100
+move_cost = 1
+food_eat = 10
+
+[hazard]
+damage_per_step = 1
+
+[food]
+spawn_rate = 0.1
+max_food = 20

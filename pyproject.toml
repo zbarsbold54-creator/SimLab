@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "simlab"
+version = "0.1.0"
+description = "Modular 2D survival simulation"
+dependencies = [
+    "numpy",
+    "PySide6",
+    "pyqtgraph",
+]
+dev-dependencies = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+simlab-cli = "simlab.cli:main"
