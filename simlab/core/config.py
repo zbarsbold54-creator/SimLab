@@ -1,1 +1,156 @@
-# SimLab config module - load TOML into dataclasses (tomllib)
+"""SimLab config module - load TOML into dataclasses (tomllib)."""
+
+import os
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+
+
+@dataclass
+class WorldConfig:
+    """Configuration for the simulation world."""
+    width: int = 50
+    height: int = 50
+    seed: int = 42
+
+
+@dataclass
+class AgentConfig:
+    """Configuration for agents."""
+    initial_energy: float = 100.0
+    move_cost: float = 1.0
+    food_eat: float = 10.0
+
+
+@dataclass
+class HazardConfig:
+    """Configuration for hazards."""
+    damage_per_step: float = 1.0
+
+
+@dataclass
+class FoodConfig:
+    """Configuration for food."""
+    spawn_rate: float = 0.1
+    max_food: int = 20
+
+
+@dataclass
+class SimLabConfig:
+    """Main configuration container for SimLab."""
+    world: WorldConfig = field(default_factory=WorldConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
+    hazard: HazardConfig = field(default_factory=HazardConfig)
+    food: FoodConfig = field(default_factory=FoodConfig)
+
+    @classmethod
+    def from_toml(cls, path: str) -> "SimLabConfig":
+        """Load configuration from a TOML file.
+        
+        Args:
+            path: Path to the TOML configuration file.
+            
+        Returns:
+            SimLabConfig instance populated with values from the TOML file.
+            
+        Raises:
+            FileNotFoundError: If the configuration file does not exist.
+            tomllib.TOMLDecodeError: If the TOML file is malformed.
+        """
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Configuration file not found: {path}")
+        
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        
+        return cls.from_dict(data)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SimLabConfig":
+        """Create SimLabConfig from a dictionary.
+        
+        Args:
+            data: Dictionary containing configuration values.
+            
+        Returns:
+            SimLabConfig instance.
+        """
+        world_data = data.get("world", {})
+        agent_data = data.get("agent", {})
+        hazard_data = data.get("hazard", {})
+        food_data = data.get("food", {})
+        
+        return cls(
+            world=WorldConfig(
+                width=world_data.get("width", 50),
+                height=world_data.get("height", 50),
+                seed=world_data.get("seed", 42),
+            ),
+            agent=AgentConfig(
+                initial_energy=agent_data.get("initial_energy", 100.0),
+                move_cost=agent_data.get("move_cost", 1.0),
+                food_eat=agent_data.get("food_eat", 10.0),
+            ),
+            hazard=HazardConfig(
+                damage_per_step=hazard_data.get("damage_per_step", 1.0),
+            ),
+            food=FoodConfig(
+                spawn_rate=food_data.get("spawn_rate", 0.1),
+                max_food=food_data.get("max_food", 20),
+            ),
+        )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert configuration to dictionary.
+        
+        Returns:
+            Dictionary representation of the configuration.
+        """
+        return {
+            "world": {
+                "width": self.world.width,
+                "height": self.world.height,
+                "seed": self.world.seed,
+            },
+            "agent": {
+                "initial_energy": self.agent.initial_energy,
+                "move_cost": self.agent.move_cost,
+                "food_eat": self.agent.food_eat,
+            },
+            "hazard": {
+                "damage_per_step": self.hazard.damage_per_step,
+            },
+            "food": {
+                "spawn_rate": self.food.spawn_rate,
+                "max_food": self.food.max_food,
+            },
+        }
+    
+    def save(self, path: str) -> None:
+        """Save configuration to a TOML file.
+        
+        Args:
+            path: Path where the TOML configuration file will be saved.
+        """
+        import tomllib
+        
+        data = self.to_dict()
+        with open(path, "wb") as f:
+            tomllib.dump(data, f)
+
+
+# Default configuration loader
+def load_config(path: str = "configs/default.toml") -> SimLabConfig:
+    """Load SimLab configuration from a TOML file.
+    
+    Args:
+        path: Path to the TOML configuration file. Defaults to "configs/default.toml".
+        
+    Returns:
+        SimLabConfig instance populated with values from the TOML file.
+    """
+    return SimLabConfig.from_toml(path)
