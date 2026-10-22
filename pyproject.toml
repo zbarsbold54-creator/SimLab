@@ -20,5 +20,8 @@ dev = [
 [project.scripts]
 simlab-cli = "simlab.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["simlab*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

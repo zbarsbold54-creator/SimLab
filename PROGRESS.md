@@ -234,3 +234,28 @@ agents=5 steps=1500 screenshot=C:\\AI\\SimulationCode\\docs\\screenshots\\phase5
 ```
 
 Screenshot: `docs/screenshots/phase5.png`.
+
+## Phase 6 — Polish and docs
+
+- Finished the shared dark Qt styling for checkbox indicators, hover/pressed/checked/disabled/focus states, themed combo popup rows, scrollbars, and tooltips. Existing controls use text labels and the shared chevron asset; layout and palette remain in `simlab/gui/theme.py` and `simlab/gui/style.qss`.
+- Added a fresh-checkout README with PowerShell virtual-environment, install, run, test, and lint commands. Added `docs/EXTENDING.md` with short decorator-based drive, policy, and retention examples; noted that retention registry selection is not yet wired into GUI drive construction.
+- Added `scripts/phase6_performance.py` to measure a visible 20-agent GUI at 10x and Max.
+- Ruff formatting corrected the existing NumPy tutorial file so repository-wide `ruff format --check .` passes.
+- Fresh-clone packaging validation exposed setuptools flat-layout discovery of `configs` and `learning`; `pyproject.toml` now limits installed package discovery to `simlab*`.
+
+Raw Phase 6 verification output:
+
+```text
+33 passed in 2.92s
+All checks passed!
+50 files already formatted
+agents=20 speed=10x render_fps=58.2 sim_steps_per_second=99.7
+agents=20 speed=Max render_fps=58.0 sim_steps_per_second=113.3
+font_check: Segoe UI available=False; Arial available=False; Qt font families=0
+fresh_clone_install=success
+fresh_clone_tests=33 passed in 2.80s
+fresh_clone_cli_run=steps=1 seed=1
+fresh_clone_cli_bench=agents=20 steps=1000 steps_per_second=291.5
+```
+
+Offscreen screenshot review: panel and control styling is consistent; this Qt runtime exposes no font families, so its screenshot renders text as missing-glyph boxes. This environment limitation does not establish how text renders in the user's interactive Windows session.

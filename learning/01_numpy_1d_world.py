@@ -1,4 +1,4 @@
-﻿# EXAMPLE, not project code.
+# EXAMPLE, not project code.
 # This tiny 1D world shows the NumPy pattern we will reuse in the real sim.
 
 import numpy as np
@@ -11,7 +11,7 @@ print("Cell 2:", world[2])  # scalar
 # A simple update rule:
 # - If a cell is already alive, it stays alive.
 # - If a cell is empty and it has at least one live neighbor, it becomes alive.
-left = np.roll(world, 1)   # shape (5,)
+left = np.roll(world, 1)  # shape (5,)
 right = np.roll(world, -1)  # shape (5,)
 
 birth_mask = (world == 0) & ((left == 1) | (right == 1))  # shape (5,)

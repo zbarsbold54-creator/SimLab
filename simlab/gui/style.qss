@@ -1,6 +1,8 @@
 QWidget {
     background-color: #0F1218;
     color: #E6EAF2;
+    font-family: "Segoe UI";
+    font-size: 10pt;
 }
 QLabel {
     background-color: transparent;
@@ -54,6 +56,44 @@ QPushButton:hover, QComboBox:hover {
 }
 QPushButton:pressed {
     background-color: #232A36;
+    border-color: #4C9AFF;
+}
+QPushButton:checked {
+    background-color: #232A36;
+    border-color: #4C9AFF;
+}
+QPushButton:disabled, QComboBox:disabled, QLineEdit:disabled {
+    color: #8A94A6;
+    background-color: #0F1218;
+    border-color: #232A36;
+}
+QLineEdit:focus, QComboBox:focus {
+    border-color: #4C9AFF;
+}
+QCheckBox {
+    spacing: 6px;
+    background-color: transparent;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    background-color: #0F1218;
+    border: 1px solid #8A94A6;
+    border-radius: 3px;
+}
+QCheckBox::indicator:hover {
+    border-color: #4C9AFF;
+}
+QCheckBox::indicator:checked {
+    background-color: #4C9AFF;
+    border-color: #4C9AFF;
+}
+QCheckBox::indicator:disabled {
+    background-color: #232A36;
+    border-color: #232A36;
+}
+QSlider::handle:horizontal:hover {
+    background-color: #E6EAF2;
 }
 QComboBox QAbstractItemView {
     background-color: #161B24;
@@ -68,6 +108,9 @@ QComboBox QAbstractItemView::item {
 }
 QComboBox QAbstractItemView::item:selected {
     background-color: #4C9AFF;
+}
+QComboBox QAbstractItemView::item:hover {
+    background-color: #232A36;
 }
 QComboBox::drop-down {
     background-color: #161B24;
@@ -90,4 +133,28 @@ QStatusBar QLabel {
 }
 QStatusBar QWidget#statusInset {
     background-color: transparent;
+}
+QScrollBar:vertical {
+    background-color: #0F1218;
+    width: 10px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background-color: #2F3848;
+    min-height: 24px;
+    border-radius: 4px;
+}
+QScrollBar::handle:vertical:hover {
+    background-color: #4C9AFF;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+    height: 0;
+}
+QToolTip {
+    background-color: #161B24;
+    color: #E6EAF2;
+    border: 1px solid #2F3848;
+    padding: 4px;
 }
