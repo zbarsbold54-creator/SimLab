@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from simlab.core.types import Snapshot
 from simlab.gui import theme
+from simlab.gui.sim_worker import SimulationFrame
 
 
 def agent_triangle_vertices(
@@ -33,6 +34,8 @@ def agent_triangle_vertices(
 
 
 class WorldView(QWidget):
+    agentSelected = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._snapshot: Snapshot | None = None
@@ -43,6 +46,16 @@ class WorldView(QWidget):
         self._cursor_point: QPointF | None = None
         self._hovered_hazard: int | None = None
         self._selected_agent: str | None = None
+        self._frame: SimulationFrame | None = None
+        self._overlays = {
+            "rays": True,
+            "vision": False,
+            "trails": False,
+            "grid": False,
+            "halo": False,
+        }
+        self._follow_selected = False
+        self._trails: dict[str, list[tuple[float, float]]] = {}
         self.setMouseTracking(True)
         self.setMinimumSize(theme.VIEW_MIN_WIDTH, theme.VIEW_MIN_HEIGHT)
 
@@ -54,6 +67,30 @@ class WorldView(QWidget):
     def set_snapshot(self, snapshot: Snapshot) -> None:
         self._snapshot = snapshot
         self._refresh_hover()
+        self.update()
+
+    def set_frame(self, frame: SimulationFrame) -> None:
+        self._frame = frame
+        self.set_snapshot(frame.snapshot)
+        for agent_id, state in frame.snapshot.agent_states.items():
+            points = self._trails.setdefault(agent_id, [])
+            points.append(state.position)
+            del points[:-600]
+        selected = frame.snapshot.agent_states.get(self._selected_agent)
+        if self._follow_selected and selected is not None:
+            scale, _ = self._transform(frame.snapshot)
+            self._pan = QPointF(
+                self.width() / 2 - selected.position[0] * scale,
+                self.height() / 2 - selected.position[1] * scale,
+            )
+        self.update()
+
+    def set_overlay(self, name: str, enabled: bool) -> None:
+        self._overlays[name] = bool(enabled)
+        self.update()
+
+    def set_follow_selected(self, enabled: bool) -> None:
+        self._follow_selected = bool(enabled)
         self.update()
 
     def _transform(self, snapshot: Snapshot) -> tuple[float, QPointF]:
@@ -119,6 +156,14 @@ class WorldView(QWidget):
         painter.drawRect(arena)
         painter.setClipRect(arena, Qt.ClipOperation.IntersectClip)
 
+        if self._overlays["grid"]:
+            grid_pen = QPen(QColor(theme.GRID_COLOR), theme.GRID_WIDTH / scale)
+            painter.setPen(grid_pen)
+            for x in range(0, int(snapshot.width) + 1, theme.GRID_SPACING):
+                painter.drawLine(QPointF(x, 0), QPointF(x, snapshot.height))
+            for y in range(0, int(snapshot.height) + 1, theme.GRID_SPACING):
+                painter.drawLine(QPointF(0, y), QPointF(snapshot.width, y))
+
         # Food is beneath hazards and agents so living entities remain legible.
         for patch in snapshot.food_patches:
             x, y = patch["position"]
@@ -166,6 +211,60 @@ class WorldView(QWidget):
                 continue
             x, y = state.position
             angle = state.heading
+            if self._overlays["trails"]:
+                trail = self._trails.get(state.agent_id, [])
+                if len(trail) > 1:
+                    painter.setPen(
+                        QPen(QColor(theme.TRAIL_COLOR), theme.TRAIL_WIDTH / scale)
+                    )
+                    painter.drawPolyline(
+                        QPolygonF([QPointF(*point) for point in trail])
+                    )
+            if state.agent_id == self._selected_agent and self._frame is not None:
+                detail = self._frame.agents.get(state.agent_id)
+                observation = detail.observation if detail else None
+                if observation is not None and self._overlays["rays"]:
+                    painter.setPen(
+                        QPen(QColor(theme.RAY_COLOR), theme.RAY_WIDTH / scale)
+                    )
+                    offsets = [
+                        -math.radians(135)
+                        + index * math.radians(270) / max(len(observation.rays) - 1, 1)
+                        for index in range(len(observation.rays))
+                    ]
+                    if len(offsets) > len(offsets) // 2:
+                        offsets[len(offsets) // 2] = 0.0
+                    for distance, offset in zip(observation.rays, offsets):
+                        ray_angle = angle + offset
+                        painter.drawLine(
+                            QPointF(x, y),
+                            QPointF(
+                                x + math.cos(ray_angle) * distance,
+                                y + math.sin(ray_angle) * distance,
+                            ),
+                        )
+                    if self._overlays["vision"]:
+                        cone = QPainterPath(QPointF(x, y))
+                        cone.arcTo(
+                            QRectF(x - 20, y - 20, 40, 40),
+                            -math.degrees(angle) - 135,
+                            270,
+                        )
+                        cone.closeSubpath()
+                        tint = QColor(theme.RAY_COLOR)
+                        tint.setAlpha(theme.VISION_ALPHA)
+                        painter.fillPath(cone, tint)
+                if self._overlays["halo"] and detail and detail.drives:
+                    index = max(
+                        range(len(detail.drives)), key=detail.drives.__getitem__
+                    )
+                    halo = QColor(theme.DRIVE_COLORS[index % len(theme.DRIVE_COLORS)])
+                    halo.setAlpha(theme.HALO_ALPHA)
+                    painter.setPen(QPen(halo, theme.HALO_WIDTH / scale))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawEllipse(
+                        QPointF(x, y), theme.HALO_RADIUS, theme.HALO_RADIUS
+                    )
             size = theme.AGENT_SIZE
             points = [
                 QPointF(*point)
@@ -270,6 +369,7 @@ class WorldView(QWidget):
                 self._selected_agent = (
                     nearest[1] if nearest[0] <= theme.AGENT_SELECT_RADIUS else None
                 )
+                self.agentSelected.emit(self._selected_agent)
         self._drag_point = None
         self._press_point = None
         self._cursor_point = point

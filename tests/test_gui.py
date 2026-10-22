@@ -179,3 +179,48 @@ def test_window_worker_steps_and_closes_cleanly() -> None:
     window.close()
     app.processEvents()
     assert not thread.isRunning()
+
+
+def test_phase4_selection_updates_inspector_and_live_drive_plot() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(seed=17, agent_count=2)
+    window.worker.set_playing(False)
+    window.show()
+    window.worker.request_step()
+    deadline = time.monotonic() + 3.0
+    while window.worker.latest_snapshot.step < 1 and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    app.processEvents()
+    window._select_agent("agent_0")
+    assert window.inspector._labels["agent"].text() == "Agent: agent_0"
+    assert window.drive_plot._lines
+    assert all(line.getData()[0].size > 0 for line in window.drive_plot._lines.values())
+    window.close()
+    app.processEvents()
+
+
+def test_phase4_scenario_applies_and_resets_using_current_seed() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(seed=29, agent_count=2)
+    window.worker.set_playing(False)
+    window.show()
+    window.scenario.agent_count.setValue(4)
+    window.scenario.hazard_count.setValue(2)
+    window.scenario.food_regrowth.setValue(17)
+    window.scenario.apply()
+    deadline = time.monotonic() + 3.0
+    while (
+        len(window.worker.latest_snapshot.agent_states) != 4
+        and time.monotonic() < deadline
+    ):
+        app.processEvents()
+        time.sleep(0.01)
+    app.processEvents()
+    snapshot = window.worker.latest_snapshot
+    assert len(snapshot.agent_states) == 4
+    assert len(snapshot.hazard_patches) == 2
+    assert window.worker.seed == 29
+    assert window._config.food.spawn_rate == 0.17
+    window.close()
+    app.processEvents()

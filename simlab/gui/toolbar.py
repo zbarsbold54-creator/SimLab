@@ -7,6 +7,7 @@ import secrets
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QLabel,
     QLineEdit,
@@ -40,6 +41,18 @@ class SimulationToolbar(QToolBar):
         self.seed_label = QLabel("Seed")
         self.random_button = QPushButton("Random seed")
         self.reset_button = QPushButton("Reset")
+        self.follow = QCheckBox("Follow")
+        self.overlay_checks = {}
+        for name, title in (
+            ("rays", "Rays"),
+            ("vision", "Vision"),
+            ("trails", "Trails"),
+            ("grid", "Grid"),
+            ("halo", "Drive halo"),
+        ):
+            checkbox = QCheckBox(title)
+            checkbox.setChecked(name == "rays")
+            self.overlay_checks[name] = checkbox
         for widget in (self.play_button, self.step_button):
             self.addWidget(widget)
         self.addSeparator()
@@ -49,6 +62,10 @@ class SimulationToolbar(QToolBar):
         self.addWidget(self.seed)
         self.addWidget(self.random_button)
         self.addWidget(self.reset_button)
+        self.addSeparator()
+        self.addWidget(self.follow)
+        for checkbox in self.overlay_checks.values():
+            self.addWidget(checkbox)
         self.play_button.clicked.connect(self._toggle_play)
         self.step_button.clicked.connect(self.singleStep)
         self.speed.currentTextChanged.connect(self.speedChanged)

@@ -8,6 +8,33 @@ QLabel {
 QMainWindow, QToolBar, QStatusBar {
     background-color: #161B24;
 }
+QDockWidget {
+    background-color: #161B24;
+    border: 1px solid #232A36;
+}
+QDockWidget::title {
+    background-color: #161B24;
+    color: #E6EAF2;
+    padding: 8px;
+    border-bottom: 1px solid #232A36;
+}
+QSlider::groove:horizontal {
+    background-color: #232A36;
+    height: 4px;
+}
+QSlider::handle:horizontal {
+    background-color: #4C9AFF;
+    border-radius: 5px;
+    width: 10px;
+    margin: -4px 0;
+}
+QProgressBar {
+    background-color: #0F1218;
+    border: 1px solid #232A36;
+    border-radius: 4px;
+    color: #E6EAF2;
+    text-align: center;
+}
 QToolBar {
     border: 0;
     spacing: 8px;

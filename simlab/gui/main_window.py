@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QWidget
+from PySide6.QtWidgets import QApplication, QDockWidget, QLabel, QMainWindow, QWidget
 
 from simlab.core.config import load_config
 from simlab.gui import theme
+from simlab.gui.drive_plot import DrivePlotWidget
+from simlab.gui.inspector import InspectorWidget
+from simlab.gui.scenario import ScenarioWidget
 from simlab.gui.sim_worker import SimWorker
 from simlab.gui.toolbar import SimulationToolbar
 from simlab.gui.world_view import WorldView
@@ -45,9 +49,29 @@ class MainWindow(QMainWindow):
         self._thread = QThread(self)
         config = load_config()
         self.worker = SimWorker(config, seed, agents=agent_count)
+        self._config = config
+        self._frame_history = OrderedDict()
+        self._selected_agent: str | None = None
+        policies, drives = self.worker.registry_options
+        self.scenario = ScenarioWidget(config, policies, drives, seed)
+        self.scenario_dock = QDockWidget("Scenario", self)
+        self.scenario_dock.setWidget(self.scenario)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.scenario_dock)
+        self.inspector = InspectorWidget()
+        self.inspector_dock = QDockWidget("Inspector", self)
+        self.inspector_dock.setWidget(self.inspector)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.inspector_dock)
+        self.drive_plot = DrivePlotWidget()
+        self.plot_dock = QDockWidget("Drives and Timeline", self)
+        self.plot_dock.setWidget(self.drive_plot)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.plot_dock)
+        self.scenario_dock.setMinimumWidth(theme.INSPECTOR_WIDTH)
+        self.inspector_dock.setMinimumWidth(theme.INSPECTOR_WIDTH)
+        self.plot_dock.setMinimumHeight(theme.PLOT_HEIGHT)
         self.worker.moveToThread(self._thread)
         self._thread.started.connect(self.worker.run)
         self.worker.snapshotReady.connect(self._accept_snapshot)
+        self.worker.frameReady.connect(self._accept_frame)
         self.worker.metricsReady.connect(self._accept_metrics)
         self.worker.stopped.connect(self._thread.quit)
         self.toolbar.playPause.connect(
@@ -62,6 +86,16 @@ class MainWindow(QMainWindow):
         self.toolbar.resetRequested.connect(
             self.worker.request_reset, Qt.ConnectionType.DirectConnection
         )
+        self.world_view.agentSelected.connect(self._select_agent)
+        self.scenario.applyRequested.connect(self._apply_scenario)
+        self.drive_plot.timelineChanged.connect(self._seek_timeline)
+        self.toolbar.follow.toggled.connect(self.world_view.set_follow_selected)
+        for name, checkbox in self.toolbar.overlay_checks.items():
+            checkbox.toggled.connect(
+                lambda enabled, overlay=name: self.world_view.set_overlay(
+                    overlay, enabled
+                )
+            )
         self._timer = QTimer(self)
         self._timer.setInterval(theme.TIMER_INTERVAL_MS)
         self._timer.timeout.connect(self._render_latest)
@@ -86,6 +120,41 @@ class MainWindow(QMainWindow):
         self._seed = self.worker.seed
         self.world_view.set_snapshot(snapshot)
 
+    def _accept_frame(self, frame) -> None:
+        self._frame_history[frame.snapshot.step] = frame
+        self._frame_history.move_to_end(frame.snapshot.step)
+        while len(self._frame_history) > theme.SNAPSHOT_HISTORY:
+            self._frame_history.popitem(last=False)
+        self.world_view.set_frame(frame)
+        self.inspector.set_agent(frame, self._selected_agent)
+        self.drive_plot.update_frame(frame)
+
+    def _select_agent(self, agent_id: str | None) -> None:
+        self._selected_agent = agent_id
+        self.drive_plot.select_agent(agent_id)
+        for historical_frame in self._frame_history.values():
+            self.drive_plot.update_frame(historical_frame)
+        frame = self.worker.latest_frame
+        self.inspector.set_agent(frame, agent_id)
+        self.drive_plot.update_frame(frame)
+
+    def _apply_scenario(self, config) -> None:
+        self._config = config
+        self.scenario._seed = self._seed
+        self.scenario.summary.setText(
+            f"Seed {self._seed} · {config.agent.count} agents · {config.hazard.count} hazards"
+        )
+        self._frame_history.clear()
+        self.worker.request_scenario(self._seed, config)
+
+    def _seek_timeline(self, step: int) -> None:
+        frame = self._frame_history.get(step)
+        if frame is None:
+            return
+        self.world_view.set_frame(frame)
+        self.inspector.set_agent(frame, self._selected_agent)
+        self.worker.request_restore(frame)
+
     def _accept_metrics(
         self, steps_per_second: float, elapsed: float, step: int, seed: int
     ) -> None:
@@ -95,8 +164,13 @@ class MainWindow(QMainWindow):
         self._seed = seed
 
     def _render_latest(self) -> None:
-        snapshot = self.worker.latest_snapshot
-        self.world_view.set_snapshot(snapshot)
+        frame = self.worker.latest_frame
+        snapshot = frame.snapshot
+        if (
+            self.world_view._snapshot is None
+            or self.world_view._snapshot.step != snapshot.step
+        ):
+            self.world_view.set_frame(frame)
         self._render_frames += 1
         now = time.perf_counter()
         elapsed = now - self._last_fps_time
@@ -105,9 +179,10 @@ class MainWindow(QMainWindow):
             self._render_frames = 0
             self._last_fps_time = now
         sim_time = self._step * snapshot.dt
+        selected_count = sum(state.alive for state in snapshot.agent_states.values())
         self.status_label.setText(
             f"Step {self._step} | Sim time {sim_time:.1f}s | "
-            f"Render {self._render_fps:.1f} FPS | Sim {self._step_rate:.1f} steps/s | Seed {self._seed}"
+            f"Render {self._render_fps:.1f} FPS | Sim {self._step_rate:.1f} steps/s | Seed {self._seed} | Alive {selected_count}"
         )
 
     def closeEvent(self, event) -> None:

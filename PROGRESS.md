@@ -195,3 +195,21 @@ food_patch=4 amount=18.42 drawn_radius=1.613
 27 passed in 1.20s
 All checks passed!
 ```
+
+## Phase 4 — Inspection
+
+- Added selectable agent inspection, follow camera, rays and vision overlays, trails, grid, and a drive-colored halo.
+- Added a right-side inspector with live agent state, current action, sensor summary, and eight drive bars; a bottom pyqtgraph history plot and timeline; and a registry-backed scenario dock with presets, sliders, policy and DriveCore selectors.
+- Scenario apply resets the worker on its QThread with the selected seed. The worker publishes frozen per-step `SimulationFrame` data; core imports remain independent of Qt.
+- Verification: selecting `agent_0` displays inspector data and live drive series; applying a 4-agent, 2-hazard scenario retains seed 29 and applies food regrowth 0.17.
+
+Raw Phase 4 gate output:
+
+```text
+29 passed in 1.74s
+All checks passed!
+gui_cli_exit=0
+agents=5 steps=1504 screenshot=C:\\AI\\SimulationCode\\docs\\screenshots\\phase4.png
+```
+
+Screenshot: `docs/screenshots/phase4.png`.
