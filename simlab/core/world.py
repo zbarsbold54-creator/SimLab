@@ -218,8 +218,8 @@ class World:
             agent_energies={
                 aid: agent["energy"] for aid, agent in self._agents.items()
             },
-            food_count=len(self._food_patches),
-            hazard_count=len(self._hazard_patches),
+            food_patches=self._food_patches,
+            hazard_patches=self._hazard_patches,
         )
         
         # Calculate reward (simplified: sum of alive agent energies)
@@ -292,7 +292,8 @@ class World:
         """Get a snapshot of the current world state.
         
         Returns:
-            Snapshot of the current world state.
+            Snapshot of the current world state containing ALL state
+            for deterministic replay.
         """
         return Snapshot(
             step=self._step_count,
@@ -303,8 +304,8 @@ class World:
             agent_energies={
                 aid: agent["energy"] for aid, agent in self._agents.items()
             },
-            food_count=len(self._food_patches),
-            hazard_count=len(self._hazard_patches),
+            food_patches=list(self._food_patches),
+            hazard_patches=list(self._hazard_patches),
         )
     
     def restore(self, snapshot: Snapshot) -> None:
@@ -328,11 +329,9 @@ class World:
                 "is_alive": True,
             }
         
-        # Restore food and hazard counts from snapshot if available
-        if hasattr(snapshot, 'food_count') and snapshot.food_count > 0:
-            # Food/hazard positions are not fully stored in snapshot;
-            # reset to empty and regenerate if needed
-            pass
+        # Restore food and hazard patches from snapshot
+        self._food_patches = list(snapshot.food_patches)
+        self._hazard_patches = list(snapshot.hazard_patches)
     
     def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Get agent state.

@@ -20,6 +20,7 @@ from simlab.core.entities import Agent, FoodPatch, Hazard
 from simlab.core.physics import apply_movement, check_collision, compute_arena_bounds
 from simlab.core.sensors import RayCaster, compute_proprioception, VisionResult, SensorReading
 from simlab.core.snapshot import SnapshotManager
+from simlab.interfaces.policy import HeuristicPolicy
 
 
 class Runner:
@@ -139,26 +140,26 @@ class Runner:
                 reward=0.0,
             )
 
+        # Use heuristic policy if no actions provided
+        if not agent_actions:
+            policy = HeuristicPolicy()
+            agent_0_state = {
+                "energy": self._config.agent.initial_energy,
+                "position": self._world._agents.get("agent_0", {}).get("position", (0, 0)),
+            }
+            world_state = {
+                "food_locations": list(self._world._food_patches),
+                "hazard_locations": list(self._world._hazard_patches),
+            }
+            agent_actions = {"agent_0": policy.select_action(
+                agent_0_state, world_state, [], self._step_count,
+            )}
+        
         # Step the world
         result = self._world.step(agent_actions)
 
-        # Build agent positions and energies dicts for snapshot
-        agent_positions: Dict[str, Tuple[int, int]] = {}
-        agent_energies: Dict[str, float] = {}
-        for agent_id, agent_data in self._world._agents.items():
-            if agent_data.get("is_alive", True):
-                agent_positions[agent_id] = (
-                    int(agent_data["position"][0]),
-                    int(agent_data["position"][1]),
-                )
-                agent_energies[agent_id] = agent_data["energy"]
-
-        # Capture snapshot
-        snapshot = self._snapshot_manager.capture_snapshot(
-            self._world.get_world_state(), self._step_count,
-            agent_positions=agent_positions,
-            agent_energies=agent_energies,
-        )
+        # Capture snapshot using World's snapshot method (contains ALL state)
+        snapshot = self._world.snapshot()
 
         # Update step count
         self._step_count += 1

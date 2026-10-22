@@ -49,13 +49,16 @@ class StepResult:
 
 @dataclass
 class Snapshot:
-    """Immutable snapshot of the world state at a given step."""
+    """Immutable snapshot of the world state at a given step.
+    
+    Contains ALL world state for deterministic replay.
+    """
     step: int  # Step number
     world_state: np.ndarray  # World state array (shape: width x height)
     agent_positions: Dict[str, Tuple[int, int]]  # Agent positions
     agent_energies: Dict[str, float]  # Agent energy levels
-    food_count: int  # Number of food patches remaining
-    hazard_count: int  # Number of hazards remaining
+    food_patches: List[Tuple[int, int]]  # Positions of food patches
+    hazard_patches: List[Tuple[int, int]]  # Positions of hazard patches
     metadata: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
 
     def to_dict(self) -> Dict[str, Any]:
@@ -65,8 +68,8 @@ class Snapshot:
             "world_state": self.world_state.tolist(),
             "agent_positions": self.agent_positions,
             "agent_energies": self.agent_energies,
-            "food_count": self.food_count,
-            "hazard_count": self.hazard_count,
+            "food_patches": self.food_patches,
+            "hazard_patches": self.hazard_patches,
             "metadata": self.metadata,
         }
 
@@ -79,7 +82,7 @@ class Snapshot:
             world_state=world_state,
             agent_positions=data["agent_positions"],
             agent_energies=data["agent_energies"],
-            food_count=data["food_count"],
-            hazard_count=data["hazard_count"],
+            food_patches=data.get("food_patches", []),
+            hazard_patches=data.get("hazard_patches", []),
             metadata=data.get("metadata", {}),
         )

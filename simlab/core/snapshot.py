@@ -48,6 +48,56 @@ class ActionLogEntry:
         )
 
 
+@dataclass
+class Snapshot:
+    """Immutable snapshot of the world state at a given step.
+    
+    Contains ALL world state for deterministic replay:
+    - step number
+    - world state array
+    - agent positions and energies
+    - food patch positions
+    - hazard patch positions
+    - RNG state for full determinism
+    """
+    step: int  # Step number
+    world_state: np.ndarray  # World state array (shape: width x height)
+    agent_positions: Dict[str, Tuple[int, int]]  # Agent positions
+    agent_energies: Dict[str, float]  # Agent energy levels
+    food_patches: List[Tuple[int, int]]  # Positions of food patches
+    hazard_patches: List[Tuple[int, int]]  # Positions of hazard patches
+    rng_state: Optional[Any] = None  # RNG state for determinism
+    metadata: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert snapshot to serializable dictionary."""
+        return {
+            "step": self.step,
+            "world_state": self.world_state.tolist(),
+            "agent_positions": self.agent_positions,
+            "agent_energies": self.agent_energies,
+            "food_patches": self.food_patches,
+            "hazard_patches": self.hazard_patches,
+            "rng_state": self.rng_state,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Snapshot":
+        """Create snapshot from serializable dictionary."""
+        world_state = np.array(data["world_state"], dtype=np.int8)
+        return cls(
+            step=data["step"],
+            world_state=world_state,
+            agent_positions=data["agent_positions"],
+            agent_energies=data["agent_energies"],
+            food_patches=data.get("food_patches", []),
+            hazard_patches=data.get("hazard_patches", []),
+            rng_state=data.get("rng_state"),
+            metadata=data.get("metadata", {}),
+        )
+
+
 class SnapshotManager:
     """Manages world snapshots for record/replay functionality.
     
@@ -67,8 +117,8 @@ class SnapshotManager:
     step: int,
     agent_positions: Dict[str, Tuple[int, int]] | None = None,
     agent_energies: Dict[str, float] | None = None,
-    food_count: int | None = None,
-    hazard_count: int | None = None,
+    food_patches: Optional[List[Tuple[int, int]]] = None,
+    hazard_patches: Optional[List[Tuple[int, int]]] = None,
 ) -> Snapshot:
         """Capture a snapshot of the world state at a given step.
         
@@ -77,8 +127,8 @@ class SnapshotManager:
             step: Step number.
             agent_positions: Optional dict of agent_id -> (x, y) position.
             agent_energies: Optional dict of agent_id -> energy.
-            food_count: Optional food patch count.
-            hazard_count: Optional hazard patch count.
+            food_patches: Optional list of food patch positions.
+            hazard_patches: Optional list of hazard patch positions.
             
         Returns:
             Snapshot of the world state.
@@ -87,18 +137,18 @@ class SnapshotManager:
             agent_positions = {}
         if agent_energies is None:
             agent_energies = {}
-        if food_count is None:
-            food_count = 0
-        if hazard_count is None:
-            hazard_count = 0
+        if food_patches is None:
+            food_patches = []
+        if hazard_patches is None:
+            hazard_patches = []
         
         snapshot = Snapshot(
             step=step,
             world_state=world_state.copy(),
             agent_positions=agent_positions,
             agent_energies=agent_energies,
-            food_count=food_count,
-            hazard_count=hazard_count,
+            food_patches=food_patches,
+            hazard_patches=hazard_patches,
         )
         self._snapshots[step] = snapshot
         self._current_step = step
