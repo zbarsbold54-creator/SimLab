@@ -24,12 +24,14 @@ class SimWorker(QObject):
         self,
         config: SimLabConfig | None = None,
         seed: int = 1,
-        agents: int = 1,
+        agents: int | None = None,
     ) -> None:
         super().__init__()
         self._config = config or load_config()
         self._seed = int(seed)
-        self._agent_count = max(1, int(agents))
+        self._agent_count = max(
+            1, int(self._config.agent.count if agents is None else agents)
+        )
         self._runner = Runner(self._config, self._seed, agents=self._agent_count)
         self._runner.setup()
         self._lock = threading.RLock()
@@ -37,7 +39,7 @@ class SimWorker(QObject):
         self._playing = True
         self._stopping = False
         self._step_budget = 0
-        self._speed = "1x"
+        self._speed = theme.DEFAULT_SPEED
         self._requested_seed: int | None = None
         self._steps_per_second = 0.0
         self._latest_snapshot = self._runner._world.snapshot()
@@ -56,6 +58,14 @@ class SimWorker(QObject):
     def steps_per_second(self) -> float:
         with self._lock:
             return self._steps_per_second
+
+    @property
+    def target_steps_per_second(self) -> float | None:
+        with self._lock:
+            speed = self._speed
+        if speed == "Max":
+            return None
+        return theme.BASE_STEPS_PER_SECOND * float(speed.removesuffix("x"))
 
     def set_playing(self, playing: bool) -> None:
         with self._lock:
@@ -122,7 +132,7 @@ class SimWorker(QObject):
                     steps_to_run = theme.MAX_BATCH_STEPS
                 else:
                     multiplier = float(speed.removesuffix("x"))
-                    step_credit += elapsed * 10.0 * multiplier
+                    step_credit += elapsed * theme.BASE_STEPS_PER_SECOND * multiplier
                     steps_to_run = int(step_credit)
                     step_credit -= steps_to_run
                     if steps_to_run == 0 and step_budget == 0:

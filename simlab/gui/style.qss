@@ -9,6 +9,8 @@ QToolBar {
     border: 0;
     spacing: 8px;
     padding: 8px;
+    margin-left: 8px;
+    margin-right: 8px;
 }
 QPushButton, QLineEdit, QComboBox {
     background-color: #161B24;
@@ -28,7 +30,20 @@ QComboBox QAbstractItemView {
     border: 1px solid #232A36;
     selection-background-color: #4C9AFF;
 }
+QComboBox::drop-down {
+    background-color: #161B24;
+    border-left: 1px solid #232A36;
+    width: 24px;
+}
+QComboBox::down-arrow {
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #8A94A6;
+}
 QStatusBar {
     border-top: 1px solid #232A36;
     color: #8A94A6;
+    padding: 8px;
 }

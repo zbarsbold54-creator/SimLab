@@ -26,6 +26,7 @@ class AgentConfig:
     initial_energy: float = 100.0
     move_cost: float = 1.0
     food_eat: float = 10.0
+    count: int = 1
 
 
 @dataclass
@@ -107,6 +108,7 @@ class SimLabConfig:
                 ),
                 move_cost=agent_data.get("move_cost", 1.0),
                 food_eat=agent_data.get("food_eat", 10.0),
+                count=agent_data.get("count", 1),
             ),
             hazard=HazardConfig(
                 damage_per_step=hazard_data.get("damage_per_step", 1.0),
@@ -138,6 +140,7 @@ class SimLabConfig:
                 "initial_energy": self.agent.initial_energy,
                 "move_cost": self.agent.move_cost,
                 "food_eat": self.agent.food_eat,
+                "count": self.agent.count,
             },
             "hazard": {
                 "damage_per_step": self.hazard.damage_per_step,

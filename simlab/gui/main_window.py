@@ -17,15 +17,16 @@ from simlab.gui.world_view import WorldView
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, seed: int = 1, agent_count: int = 1) -> None:
+    def __init__(self, seed: int = 1, agent_count: int | None = None) -> None:
         super().__init__()
         stylesheet = Path(__file__).with_name("style.qss").read_text(encoding="utf-8")
         application = QApplication.instance()
         if application is not None:
             application.setStyleSheet(stylesheet)
             application.setFont(QFont(theme.UI_FONT, theme.UI_FONT_SIZE_PT))
-        self.setWindowTitle("SimLab")
+        self.setWindowTitle("SimLab - Simulation Studio")
         self.resize(theme.WINDOW_WIDTH, theme.WINDOW_HEIGHT)
+        self.setMinimumSize(theme.WINDOW_MIN_WIDTH, theme.WINDOW_MIN_HEIGHT)
         self.toolbar = SimulationToolbar(self)
         self.addToolBar(self.toolbar)
         self.world_view = WorldView(self)
@@ -37,7 +38,8 @@ class MainWindow(QMainWindow):
         self._step = 0
         self._seed = seed
         self._thread = QThread(self)
-        self.worker = SimWorker(load_config(), seed, agents=agent_count)
+        config = load_config()
+        self.worker = SimWorker(config, seed, agents=agent_count)
         self.worker.moveToThread(self._thread)
         self._thread.started.connect(self.worker.run)
         self.worker.snapshotReady.connect(self._accept_snapshot)

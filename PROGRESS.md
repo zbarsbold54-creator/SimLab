@@ -129,3 +129,40 @@ agents=20 speed=Max render_fps=48.6 sim_steps_per_second=125.0
 ```
 
 Screenshot: `docs/screenshots/phase3.png`.
+
+## Phase 3 visual fixes
+
+- The speed selector and worker now share `theme.DEFAULT_SPEED`; selecting a speed updates the target rate.
+- The default 50x50 arena uses a configured 30-unit hazard detection radius and 1.5-unit contact radius. The old renderer drew the 30-unit detection ring. Detection configuration is unchanged; a smaller 10-unit default was proposed and awaits user direction.
+- Arena contents are clipped to the arena. The faint default hazard ring shows contact radius; detection radius appears on hazard hover or when a selected agent is within detection range.
+- Food is amount-scaled and desaturated; agents use a solid energy-interpolated fill and render above food and hazards.
+- Default GUI agent count is read from `configs/default.toml` (`[agent] count = 5`).
+- Toolbar/status spacing, seed label, title, minimum size, arena fill/border, and combo styling were polished.
+- Added speed, food-radius, detection-ring, and TOML agent-count tests.
+
+Verification output:
+
+```text
+selector_default=1x worker_default=1x
+speed=0.25x target_steps_per_second=2.5
+speed=0.5x target_steps_per_second=5
+speed=1x target_steps_per_second=10
+speed=2x target_steps_per_second=20
+speed=5x target_steps_per_second=50
+speed=10x target_steps_per_second=100
+configured_detection_radius=30
+contact_damage_radius=1.5
+previous_ring_drawn_radius=30
+arena=50x50 default_agent_count=5
+
+food_patch_sample=0 amount=2.00 drawn_radius=0.680
+food_patch_sample=1 amount=5.00 drawn_radius=0.800
+food_patch_sample=2 amount=10.00 drawn_radius=1.000
+food_patch_sample=3 amount=15.00 drawn_radius=1.200
+food_patch_sample=4 amount=20.00 drawn_radius=1.400
+
+24 passed in 1.18s
+All checks passed!
+```
+
+Screenshots: `docs/screenshots/phase3_polish_5agents.png` and `docs/screenshots/phase3_polish_20agents.png`.
