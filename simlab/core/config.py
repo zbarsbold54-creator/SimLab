@@ -91,7 +91,7 @@ class SimLabConfig:
                 seed=world_data.get("seed", 42),
             ),
             agent=AgentConfig(
-                initial_energy=agent_data.get("initial_energy", 100.0),
+                initial_energy=agent_data.get("initial_energy", agent_data.get("energy", 100.0)),
                 move_cost=agent_data.get("move_cost", 1.0),
                 food_eat=agent_data.get("food_eat", 10.0),
             ),

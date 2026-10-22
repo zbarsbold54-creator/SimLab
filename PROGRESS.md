@@ -1,84 +1,32 @@
-# SimLab Progress
+# SimLab progress
 
-## Phase 0: Project Setup
+## Phase 0+1 — deterministic core
 
-- [x] Initialize git repository
-- [x] Create project structure (pyproject.toml, README.md, PROGRESS.md)
-- [x] Create folder layout as specified
-- [x] Create core module stubs (types.py, registry.py, config.py, rng.py, world.py, entities.py, physics.py, sensors.py, snapshot.py, runner.py)
-- [x] Create interfaces module stubs (drive_core.py, policy.py)
-- [x] Create configs\default.toml
-- [x] Create docs\EXTENDING.md
-- [x] Implement core types (Snapshot, AgentState, Action, Observation dataclasses)
-- [x] Implement RNG module with seeded Generator and child streams
-- [x] Implement config module with TOML loading/saving
-- [x] Implement World class with reset/step
-- [x] Implement Entity classes (Agent, FoodPatch, Hazard)
-- [x] Implement physics system
-- [x] Implement sensor system
-- [x] Implement snapshot/restore module
-- [x] Implement headless runner
-- [x] Implement registry pattern
-- [x] Implement DriveCore and Policy protocols
+Status: Phase 1 gate passed and committed as `Phase 1: verified deterministic core`.
 
-### What exists:
-- Git repo initialized, branch main
-- pyproject.toml with dependencies (numpy, PySide6, pyqtgraph)
-- README.md with getting started guide
-- PROGRESS.md tracking progress
-- All folder structure created as specified
-- Core module stubs created
-- Interfaces module stubs created
-- Config file created
-- Extending documentation created
-- Types module implemented with full dataclasses
-- RNG module implemented with SimRNG class supporting child streams
-- Config module implemented with TOML loading/saving and dataclass configuration
-- World class implemented with reset/step functionality, agent management, food/hazard handling
-- Entity classes implemented with Agent, FoodPatch, Hazard dataclasses and EntityRegistry
-- Physics module implemented with movement, collision detection, arena bounds, and reflection
-- Sensor module implemented with ray-cast vision and proprioception
-- Snapshot/restore module implemented with ActionLogEntry and SnapshotManager
-- Headless runner implemented with Runner class supporting run_step, run_episode, run_bench
-- Registry pattern implemented with Registry class and global registry
-- DriveCore and Policy protocols implemented with RetentionRule and example implementations
+Audit findings before repair:
 
-### How to run:
-N/A - project structure only at this point
+- `python -m simlab.cli --version` was unsupported.
+- The world used a grid, global `np.random.seed`, and mutable dict state that removed dead agents.
+- The runner created policy actions and duplicated state outside the World; `run_episode` referenced a missing registry.
+- Snapshots did not reliably include the Generator state and were assembled partly by the runner.
+- Tests were duplicated under `simlab/tests/` and scratch files were collected by pytest.
 
-### Key decisions:
-- Using numpy for world state management
-- PySide6 + pyqtgraph for GUI
-- Plugin-style architecture with decorator-based registration
-- Clean separation between core and GUI
-- Immutable Snapshot pattern for deterministic state
-- numpy Generator for reproducible RNG with child stream support
-- TOML-based configuration with dataclass mapping
-- Deterministic world simulation with snapshot/restore capability
-- Entity-component pattern with registry for managing agents, food, and hazards
-- Physics system with boundary checking, collision detection, and toroidal wrapping support
-- Sensor system with ray-casting vision and proprioception
-- Snapshot system with action-log recording and replay capability
-- Headless runner for benchmarking and headless operation
-- Registry pattern with decorator-based registration and lookup
-- DriveCore and Policy protocols for plugin-style drive and policy systems
+What exists now:
 
-### Phase 1: Core Modules Functional ✅
+- `World` owns continuous agent, food, hazard, time, and RNG state; it exposes `snapshot`, `restore`, and `state_hash`.
+- `Action` uses turn/thrust/eat controls and `StepResult` follows the terminated/truncated/info shape.
+- `Runner` seeds one NumPy Generator, records actions and snapshots, and provides headless run and benchmark commands.
+- Root `tests/` contains the five Phase 1 gates; pytest is restricted to that directory.
+- The GUI and survival hazards, sensing, drives, plugins, and research integrations remain for later phases.
 
-- [x] Same seed produces identical trajectory
-- [x] Snapshot restore reproduces exact future
-- [x] Action log replay matches original run
-- [x] Rename venv to .venv (collides with simlab\ package)
-- [x] .venv added to .gitignore
-- [x] Removed _entity_registry from runner (reads state from world directly)
-- [x] CLI entry point created (python -m simlab.cli run --steps 1000 --seed 1)
-- [x] All 3 Phase 1 tests pass
-- [x] Snapshot design fixed: World produces its own snapshot with ALL state (agent fields, food, step counter, RNG state)
-- [x] Runner no longer passes agent_positions/agent_energies into snapshot
-- [x] Simulation evolves with different seeds (verified: seed 1 ≠ seed 2)
-- [x] Run summary includes: steps, seed, per-agent final position, energy, food eaten, final state hash
+Run:
 
-### Open issues:
-- Full integration testing of all modules together
-- Type hints completeness across all files
-- CLI --steps 1000 performance tuning
+```text
+python -m pytest -q
+python -m simlab.cli --version
+python -m simlab.cli run --steps 1000 --seed 1
+python -m simlab.cli bench --steps 1000
+```
+
+Open decisions: none for Phase 1.

@@ -1,1 +1,2 @@
-# SimLab package
+# SimLab package.
+__version__ = "0.1.0"

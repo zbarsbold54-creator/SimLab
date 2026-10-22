@@ -1,116 +1,30 @@
-"""SimLab CLI entry point."""
-
+"""Command line entry point for SimLab."""
 from __future__ import annotations
-
-import argparse
-import sys
-
+import argparse, sys
+from simlab import __version__
 from simlab.core.config import load_config
 from simlab.core.runner import Runner
 
-
 def main(argv: list[str] | None = None) -> int:
-    """SimLab command-line interface.
-
-    Supported commands:
-      run     Run a simulation for a given number of steps with optional seed.
-      gui     Launch the GUI (not yet implemented).
-      bench   Run a benchmark for a fixed number of steps.
-
-    Args:
-        argv: Command-line arguments. If None, uses sys.argv.
-
-    Returns:
-        Exit code (0 for success, non-zero for errors).
-    """
-    parser = argparse.ArgumentParser(prog="simlab-cli", description="SimLab simulation CLI")
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
-
-    # run command
-    run_parser = subparsers.add_parser("run", help="Run a simulation")
-    run_parser.add_argument("--steps", type=int, default=100, help="Number of steps to run")
-    run_parser.add_argument("--seed", type=int, default=None, help="Random seed")
-
-    # gui command
-    subparsers.add_parser("gui", help="Launch GUI (not yet implemented)")
-
-    # bench command
-    bench_parser = subparsers.add_parser("bench", help="Run a benchmark")
-    bench_parser.add_argument("--steps", type=int, required=True, help="Number of steps to benchmark")
-
+    parser = argparse.ArgumentParser(prog="simlab-cli"); parser.add_argument("--version", action="version", version=__version__)
+    subs = parser.add_subparsers(dest="command"); run = subs.add_parser("run"); run.add_argument("--steps", type=int, default=100); run.add_argument("--seed", type=int, default=None)
+    bench = subs.add_parser("bench"); bench.add_argument("--steps", type=int, default=1000); subs.add_parser("gui")
     args = parser.parse_args(argv)
-
-    if args.command is None:
-        parser.print_help()
-        return 1
-
-    if args.command == "run":
-        return run_simulation(args.steps, args.seed)
-    elif args.command == "bench":
-        return run_benchmark(args.steps)
-
+    if args.command == "run": return run_simulation(args.steps, args.seed)
+    if args.command == "bench": return run_benchmark(args.steps)
+    if args.command == "gui": parser.error("GUI is scheduled for Phase 3")
+    parser.print_help(); return 1
 
 def run_simulation(steps: int, seed: int | None = None) -> int:
-    """Run a simulation for a given number of steps.
-
-    Args:
-        steps: Number of steps to run.
-        seed: Random seed. If None, uses config seed.
-
-    Returns:
-        Exit code.
-    """
-    config = load_config()
-    runner = Runner(config=config, seed=seed)
-    runner.setup()
-
-    for _ in range(steps):
-        result = runner.run_step({})
-        if result.terminated:
-            break
-
-    # Print summary
-    print(f"SimLab Simulation Summary")
-    print(f"========================")
-    print(f"Steps run: {runner._step_count}")
-    print(f"Terminated: {result.terminated}")
-    print(f"Seed: {runner._seed}")
-    print(f"Config seed: {config.world.seed}")
-
-    # Print agent states if any (read from world)
-    world_agents = runner._world._agents
-    for agent_id, agent_data in world_agents.items():
-        if agent_data.get("is_alive", True):
-            print(f"  {agent_id}: position=({int(agent_data['position'][0])},{int(agent_data['position'][1])}), energy={agent_data['energy']}")
-
-    return 0
-
+    runner = Runner(load_config(), seed); runner.setup(); initial = {aid: tuple(s["position"]) for aid, s in runner._world._agents.items()}
+    for _ in range(steps): runner.run_step()
+    print(f"steps={runner._step_count} seed={runner._seed}")
+    for aid, state in runner._world._agents.items():
+        distance = ((state["position"][0] - initial[aid][0]) ** 2 + (state["position"][1] - initial[aid][1]) ** 2) ** 0.5
+        print(f"{aid} position=({state['position'][0]:.3f},{state['position'][1]:.3f}) distance_traveled={distance:.3f} food_eaten={state['food_eaten']} energy={state['energy']:.3f}")
+    print(f"state_hash={runner._world.state_hash()}"); return 0
 
 def run_benchmark(steps: int) -> int:
-    """Run a benchmark for a fixed number of steps.
+    runner = Runner(load_config(), 42); runner.setup(); runner.run_bench(steps); print(f"steps={steps} steps_per_second={runner.last_bench_steps_per_second:.1f}"); return 0
 
-    Args:
-        steps: Number of steps to run.
-
-    Returns:
-        Exit code.
-    """
-    config = load_config()
-    runner = Runner(config=config, seed=42)
-    runner.setup()
-
-    results = runner.run_bench(num_steps=steps)
-
-    print(f"SimLab Benchmark Summary")
-    print(f"========================")
-    print(f"Steps run: {len(results)}")
-    print(f"Final step count: {runner._step_count}")
-
-    terminated_count = sum(1 for r in results if r.terminated)
-    print(f"Episodes terminated: {terminated_count}")
-
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == "__main__": sys.exit(main())
