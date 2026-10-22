@@ -33,3 +33,24 @@ python -m simlab.cli bench --steps 1000
 ```
 
 Open decisions: none for Phase 1.
+
+## Phase 2 — survival, sensing, drives, plugins
+
+Status: Phase 2 gate passed from `.venv`.
+
+- Hazards chase nearby agents, wander through the seeded generator otherwise, and damage health on contact.
+- Observations contain 16 ray distances, type channels for food/hazard/wall/agent, and proprioception.
+- `BasicDriveCore` exposes the fixed eight placeholder drives and routes updates through `RetentionRule`.
+- `FixedDecay`, `PassthroughRetention`, `HeuristicPolicy`, `RandomPolicy`, task, metric, and example plugin are registry components.
+- Registry startup imports every module in `simlab/plugins/` automatically.
+
+Gate output:
+
+```text
+17 passed in 2.45s
+steps=1000 steps_per_second=3841.2
+heuristic: mean=3750.15 spread(std)=131.53 min=3680 max=4315
+random: mean=852.90 spread(std)=804.24 min=277 max=3551
+```
+
+The GUI remains for Phase 3; no GUI code was added in this phase.
