@@ -12,6 +12,26 @@ from simlab.core.types import Snapshot
 from simlab.gui import theme
 
 
+def agent_triangle_vertices(
+    position: tuple[float, float], heading: float, radius: float
+) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
+    """Return the nose and symmetric rear vertices in world coordinates."""
+    local_vertices = (
+        (radius, 0.0),
+        (theme.AGENT_TAIL_X * radius, theme.AGENT_TAIL_Y * radius),
+        (theme.AGENT_TAIL_X * radius, -theme.AGENT_TAIL_Y * radius),
+    )
+    cosine, sine = math.cos(heading), math.sin(heading)
+    px, py = position
+    return tuple(
+        (
+            px + x * cosine - y * sine,
+            py + x * sine + y * cosine,
+        )
+        for x, y in local_vertices
+    )
+
+
 class WorldView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -147,17 +167,9 @@ class WorldView(QWidget):
             x, y = state.position
             angle = state.heading
             size = theme.AGENT_SIZE
-            local = (
-                (size, 0.0),
-                (size * theme.AGENT_TAIL_X, size * theme.AGENT_TAIL_Y),
-                (size * theme.AGENT_TAIL_X, -size * theme.AGENT_TAIL_Y),
-            )
             points = [
-                QPointF(
-                    x + dx * math.cos(angle) - dy * math.sin(angle),
-                    y + dx * math.sin(angle) + dy * math.cos(angle),
-                )
-                for dx, dy in local
+                QPointF(*point)
+                for point in agent_triangle_vertices(state.position, angle, size)
             ]
             fraction = min(max(state.energy / max(state.max_energy, 1e-9), 0.0), 1.0)
             fill = self._energy_color(fraction)

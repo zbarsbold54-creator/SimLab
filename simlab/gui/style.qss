@@ -2,6 +2,9 @@ QWidget {
     background-color: #0F1218;
     color: #E6EAF2;
 }
+QLabel {
+    background-color: transparent;
+}
 QMainWindow, QToolBar, QStatusBar {
     background-color: #161B24;
 }
@@ -28,7 +31,16 @@ QPushButton:pressed {
 QComboBox QAbstractItemView {
     background-color: #161B24;
     border: 1px solid #232A36;
+    color: #E6EAF2;
     selection-background-color: #4C9AFF;
+}
+QComboBox QAbstractItemView::item {
+    background-color: #161B24;
+    color: #E6EAF2;
+    padding: 6px 10px;
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: #4C9AFF;
 }
 QComboBox::drop-down {
     background-color: #161B24;
@@ -36,14 +48,19 @@ QComboBox::drop-down {
     width: 24px;
 }
 QComboBox::down-arrow {
-    width: 0;
-    height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #8A94A6;
+    image: url(icons/chevron.svg);
+    width: 12px;
+    height: 8px;
 }
 QStatusBar {
     border-top: 1px solid #232A36;
     color: #8A94A6;
     padding: 8px;
+}
+QStatusBar QLabel {
+    background-color: transparent;
+    padding: 0;
+}
+QStatusBar QWidget#statusInset {
+    background-color: transparent;
 }

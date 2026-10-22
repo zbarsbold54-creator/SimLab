@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QWidget
 
 from simlab.core.config import load_config
 from simlab.gui import theme
@@ -19,7 +19,12 @@ from simlab.gui.world_view import WorldView
 class MainWindow(QMainWindow):
     def __init__(self, seed: int = 1, agent_count: int | None = None) -> None:
         super().__init__()
-        stylesheet = Path(__file__).with_name("style.qss").read_text(encoding="utf-8")
+        stylesheet_path = Path(__file__).with_name("style.qss")
+        stylesheet = stylesheet_path.read_text(encoding="utf-8")
+        chevron_path = (stylesheet_path.parent / "icons" / "chevron.svg").as_posix()
+        stylesheet = stylesheet.replace(
+            "url(icons/chevron.svg)", f'url("{chevron_path}")'
+        )
         application = QApplication.instance()
         if application is not None:
             application.setStyleSheet(stylesheet)
@@ -62,7 +67,19 @@ class MainWindow(QMainWindow):
         self._timer.timeout.connect(self._render_latest)
         self._thread.start()
         self._timer.start()
-        self.statusBar().showMessage("Starting simulation…")
+        self.status_label = QLabel("Starting simulation…")
+        status_bar = self.statusBar()
+        status_bar.layout().setContentsMargins(
+            theme.STATUS_TEXT_INSET,
+            0,
+            theme.STATUS_TEXT_INSET,
+            0,
+        )
+        self._status_inset = QWidget()
+        self._status_inset.setObjectName("statusInset")
+        self._status_inset.setFixedWidth(theme.STATUS_TEXT_INSET)
+        status_bar.addWidget(self._status_inset)
+        status_bar.addWidget(self.status_label, 1)
 
     def _accept_snapshot(self, snapshot) -> None:
         self._step = snapshot.step
@@ -88,7 +105,7 @@ class MainWindow(QMainWindow):
             self._render_frames = 0
             self._last_fps_time = now
         sim_time = self._step * snapshot.dt
-        self.statusBar().showMessage(
+        self.status_label.setText(
             f"Step {self._step} | Sim time {sim_time:.1f}s | "
             f"Render {self._render_fps:.1f} FPS | Sim {self._step_rate:.1f} steps/s | Seed {self._seed}"
         )

@@ -166,3 +166,32 @@ All checks passed!
 ```
 
 Screenshots: `docs/screenshots/phase3_polish_5agents.png` and `docs/screenshots/phase3_polish_20agents.png`.
+
+## Phase 3 polish 2
+
+- Agent body length is 1.6 radii (5.28 world units), about 1.55 times the default food diameter (3.4 units). Geometry is generated in local coordinates, then rotated and translated; a pure-function test checks the heading axis and mirrored rear vertices.
+- Toolbar and status text insets are verified in an offscreen window: first toolbar widget x=8, status label x=16.
+- Seed label background is transparent. The speed selector uses the SVG chevron icon and themed popup list.
+- Screenshot script now advances to the requested screenshot step and then prints actual patch sizes at its food diagnostic step.
+
+Raw screenshot and food output:
+
+```text
+agents=5 steps=1500 screenshot=docs/screenshots/phase3_polish2_5agents.png
+food_radius_diagnostics_after_step=2000
+food_patch=0 amount=20.00 drawn_radius=1.700
+food_patch=1 amount=20.00 drawn_radius=1.700
+food_patch=2 amount=0.00 drawn_radius=0.600
+food_patch=3 amount=20.00 drawn_radius=1.700
+food_patch=4 amount=20.00 drawn_radius=1.700
+agents=20 steps=1500 screenshot=docs/screenshots/phase3_polish2_20agents.png
+food_radius_diagnostics_after_step=2000
+food_patch=0 amount=20.00 drawn_radius=1.700
+food_patch=1 amount=0.00 drawn_radius=0.600
+food_patch=2 amount=17.92 drawn_radius=1.585
+food_patch=3 amount=0.00 drawn_radius=0.600
+food_patch=4 amount=18.42 drawn_radius=1.613
+
+27 passed in 1.20s
+All checks passed!
+```

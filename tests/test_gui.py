@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
@@ -9,12 +10,14 @@ import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
 from simlab.gui import theme
 from simlab.gui.main_window import MainWindow
 from simlab.gui.sim_worker import SimWorker
 from simlab.gui.toolbar import SimulationToolbar
+from simlab.gui.world_view import agent_triangle_vertices
 
 
 def test_core_import_does_not_load_qt() -> None:
@@ -81,6 +84,15 @@ def test_food_draw_radius_scales_with_amount() -> None:
     assert len(set(radii)) == len(radii)
 
 
+def test_agent_length_is_between_one_and_a_half_and_two_food_diameters() -> None:
+    from simlab.gui.world_view import WorldView
+
+    default_food_diameter = 2 * WorldView.food_draw_radius(theme.DEFAULT_FOOD_AMOUNT)
+    agent_length = theme.AGENT_SIZE * (1.0 - theme.AGENT_TAIL_X)
+    ratio = agent_length / default_food_diameter
+    assert 1.5 <= ratio <= 2.0
+
+
 def test_detection_ring_requires_hazard_hover_or_agent_in_range() -> None:
     from simlab.core.world import World
     from simlab.gui.world_view import WorldView
@@ -96,6 +108,53 @@ def test_detection_ring_requires_hazard_hover_or_agent_in_range() -> None:
     assert view._detection_ring_visible(0, hazard, selected)
     view._hovered_hazard = 0
     assert view._detection_ring_visible(0, hazard, None)
+
+
+def test_agent_vertices_follow_heading_and_are_symmetric() -> None:
+    position = (12.0, 7.0)
+    heading = 0.73
+    radius = theme.AGENT_SIZE
+    nose, rear_upper, rear_lower = agent_triangle_vertices(position, heading, radius)
+    forward = (math.cos(heading), math.sin(heading))
+    lateral = (-math.sin(heading), math.cos(heading))
+
+    def local_projection(vertex, axis):
+        delta = (vertex[0] - position[0], vertex[1] - position[1])
+        return delta[0] * axis[0] + delta[1] * axis[1]
+
+    assert math.isclose(local_projection(nose, forward), radius, abs_tol=1e-9)
+    assert math.isclose(local_projection(nose, lateral), 0.0, abs_tol=1e-9)
+    assert math.isclose(
+        local_projection(rear_upper, forward), -0.6 * radius, abs_tol=1e-9
+    )
+    assert math.isclose(
+        local_projection(rear_lower, forward), -0.6 * radius, abs_tol=1e-9
+    )
+    assert math.isclose(
+        local_projection(rear_upper, lateral),
+        -local_projection(rear_lower, lateral),
+        abs_tol=1e-9,
+    )
+    assert math.isclose(
+        abs(local_projection(rear_upper, lateral)), 0.5 * radius, abs_tol=1e-9
+    )
+
+
+def test_toolbar_and_status_text_have_eight_pixel_insets() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(seed=3, agent_count=1)
+    window.show()
+    app.processEvents()
+    first_action = window.toolbar.actions()[0]
+    first_widget = window.toolbar.widgetForAction(first_action)
+    toolbar_x = first_widget.mapTo(window, QPoint(0, 0)).x()
+    status_x = window.status_label.geometry().x()
+    try:
+        assert toolbar_x >= 8
+        assert status_x >= 8
+    finally:
+        window.close()
+        app.processEvents()
 
 
 def test_window_worker_steps_and_closes_cleanly() -> None:

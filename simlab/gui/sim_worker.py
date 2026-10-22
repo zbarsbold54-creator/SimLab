@@ -78,8 +78,11 @@ class SimWorker(QObject):
         self._wake.set()
 
     def request_step(self) -> None:
+        self.request_steps(1)
+
+    def request_steps(self, count: int) -> None:
         with self._lock:
-            self._step_budget += 1
+            self._step_budget += max(0, int(count))
         self._wake.set()
 
     def request_reset(self, seed: int) -> None:
