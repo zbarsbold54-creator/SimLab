@@ -213,3 +213,24 @@ agents=5 steps=1504 screenshot=C:\\AI\\SimulationCode\\docs\\screenshots\\phase4
 ```
 
 Screenshot: `docs/screenshots/phase4.png`.
+
+## Phase 5 — Timeline, snapshots, replay
+
+- The worker now retains a bounded ring of per-step snapshots and batches them to the GUI. The timeline can seek to an exact stored step; Play resumes from that checkpoint using the recorded actions, preserving the original future.
+- Added JSON+NPZ snapshot save/load controls and an in-memory Record/Replay toolbar. `ActionLog` can also serialize action records as JSON.
+- Split worker frame data, component execution, history, and thread controls into focused modules; `simlab/gui/sim_worker.py` is 261 lines.
+- Run the studio with `python -m simlab.cli gui`.
+
+Raw Phase 5 gate output:
+
+```text
+test_scrub_back_500_steps_and_replay_matches_original_future PASSED
+test_action_log_round_trips_json_and_groups_by_step PASSED
+test_phase5_gui_saves_and_loads_json_npz_snapshot PASSED
+33 passed in 2.77s
+All checks passed!
+gui_cli_exit=0
+agents=5 steps=1500 screenshot=C:\\AI\\SimulationCode\\docs\\screenshots\\phase5.png
+```
+
+Screenshot: `docs/screenshots/phase5.png`.

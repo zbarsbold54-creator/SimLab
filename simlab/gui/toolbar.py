@@ -41,18 +41,6 @@ class SimulationToolbar(QToolBar):
         self.seed_label = QLabel("Seed")
         self.random_button = QPushButton("Random seed")
         self.reset_button = QPushButton("Reset")
-        self.follow = QCheckBox("Follow")
-        self.overlay_checks = {}
-        for name, title in (
-            ("rays", "Rays"),
-            ("vision", "Vision"),
-            ("trails", "Trails"),
-            ("grid", "Grid"),
-            ("halo", "Drive halo"),
-        ):
-            checkbox = QCheckBox(title)
-            checkbox.setChecked(name == "rays")
-            self.overlay_checks[name] = checkbox
         for widget in (self.play_button, self.step_button):
             self.addWidget(widget)
         self.addSeparator()
@@ -62,10 +50,6 @@ class SimulationToolbar(QToolBar):
         self.addWidget(self.seed)
         self.addWidget(self.random_button)
         self.addWidget(self.reset_button)
-        self.addSeparator()
-        self.addWidget(self.follow)
-        for checkbox in self.overlay_checks.values():
-            self.addWidget(checkbox)
         self.play_button.clicked.connect(self._toggle_play)
         self.step_button.clicked.connect(self.singleStep)
         self.speed.currentTextChanged.connect(self.speedChanged)
@@ -74,7 +58,10 @@ class SimulationToolbar(QToolBar):
         self._playing = True
 
     def _toggle_play(self) -> None:
-        self._playing = not self._playing
+        self.set_playing(not self._playing)
+
+    def set_playing(self, playing: bool) -> None:
+        self._playing = bool(playing)
         self.play_button.setText("Pause" if self._playing else "Play")
         self.playPause.emit(self._playing)
 
@@ -88,3 +75,53 @@ class SimulationToolbar(QToolBar):
             seed = 1
             self.seed.setText(str(seed))
         self.resetRequested.emit(seed)
+
+
+class SessionToolbar(QToolBar):
+    """Snapshot, replay, camera, and rendering-overlay controls."""
+
+    saveSnapshotRequested = Signal()
+    loadSnapshotRequested = Signal()
+    recordingChanged = Signal(bool)
+    replayRequested = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__("Snapshot and inspection", parent)
+        self.setMovable(False)
+        self.save_snapshot_button = QPushButton("Save")
+        self.save_snapshot_button.setToolTip("Save snapshot as JSON and NPZ")
+        self.load_snapshot_button = QPushButton("Load")
+        self.load_snapshot_button.setToolTip("Load a JSON and NPZ snapshot")
+        self.record_button = QPushButton("Record")
+        self.record_button.setCheckable(True)
+        self.record_button.setChecked(True)
+        self.replay_button = QPushButton("Replay")
+        self.follow = QCheckBox("Follow")
+        self.overlay_checks = {}
+        for name, title in (
+            ("rays", "Rays"),
+            ("vision", "Cone"),
+            ("trails", "Trail"),
+            ("grid", "Grid"),
+            ("halo", "Halo"),
+        ):
+            checkbox = QCheckBox(title)
+            checkbox.setChecked(name == "rays")
+            self.overlay_checks[name] = checkbox
+        for widget in (
+            self.save_snapshot_button,
+            self.load_snapshot_button,
+            self.record_button,
+            self.replay_button,
+            self.follow,
+            *self.overlay_checks.values(),
+        ):
+            self.addWidget(widget)
+        self.save_snapshot_button.clicked.connect(self.saveSnapshotRequested)
+        self.load_snapshot_button.clicked.connect(self.loadSnapshotRequested)
+        self.record_button.toggled.connect(self._set_recording)
+        self.replay_button.clicked.connect(self.replayRequested)
+
+    def _set_recording(self, enabled: bool) -> None:
+        self.record_button.setText("Recording" if enabled else "Record")
+        self.recordingChanged.emit(enabled)

@@ -224,3 +224,82 @@ def test_phase4_scenario_applies_and_resets_using_current_seed() -> None:
     assert window._config.food.spawn_rate == 0.17
     window.close()
     app.processEvents()
+
+
+def test_phase5_timeline_scrub_resumes_recorded_actions() -> None:
+    from simlab.core.world import World
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(seed=31, agent_count=1)
+    window.worker.set_playing(False)
+    window.worker.set_speed("Max")
+    window.show()
+    window.worker.request_steps(40)
+    deadline = time.monotonic() + 3.0
+    while len(window._snapshot_history) < 41 and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert list(window._snapshot_history) == list(range(41))
+
+    window._seek_timeline(20)
+    deadline = time.monotonic() + 3.0
+    while window.worker.latest_snapshot.step != 20 and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    window.worker.request_step()
+    deadline = time.monotonic() + 3.0
+    while window.worker.latest_snapshot.step != 21 and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+
+    expected = World(seed=999)
+    expected.restore(window._snapshot_history[21])
+    actual = World(seed=999)
+    actual.restore(window.worker.latest_snapshot)
+    assert actual.state_hash() == expected.state_hash()
+    window.close()
+    app.processEvents()
+
+
+def test_phase5_gui_saves_and_loads_json_npz_snapshot(tmp_path, monkeypatch) -> None:
+    from PySide6.QtWidgets import QFileDialog
+
+    from simlab.core.world import World
+
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow(seed=41, agent_count=1)
+    window.worker.set_playing(False)
+    window.show()
+    initial = window.worker.latest_snapshot
+    expected = World(seed=0)
+    expected.restore(initial)
+    base = tmp_path / "gui_snapshot"
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(base.with_suffix(".json")), ""),
+    )
+    window._save_snapshot()
+    assert base.with_suffix(".json").exists()
+    assert base.with_suffix(".npz").exists()
+
+    window.worker.request_steps(3)
+    deadline = time.monotonic() + 3.0
+    while window.worker.latest_snapshot.step < 3 and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(base.with_suffix(".json")), ""),
+    )
+    window._load_snapshot()
+    deadline = time.monotonic() + 3.0
+    while window.worker.latest_snapshot.step != 0 and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    actual = World(seed=0)
+    actual.restore(window.worker.latest_snapshot)
+    assert actual.state_hash() == expected.state_hash()
+    window.close()
+    app.processEvents()

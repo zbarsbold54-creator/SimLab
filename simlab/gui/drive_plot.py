@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QSlider, QWidget
 
 from simlab.gui import theme
-from simlab.gui.sim_worker import SimulationFrame
+from simlab.gui.frame import SimulationFrame
 
 
 class DrivePlotWidget(QWidget):
@@ -40,6 +40,12 @@ class DrivePlotWidget(QWidget):
             self.plot.removeItem(line)
         self._lines.clear()
 
+    def set_timeline_range(self, first: int, last: int, current: int) -> None:
+        self.timeline.blockSignals(True)
+        self.timeline.setRange(first, max(first, last))
+        self.timeline.setValue(min(max(current, first), max(first, last)))
+        self.timeline.blockSignals(False)
+
     def update_frame(self, frame: SimulationFrame) -> None:
         detail = frame.agents.get(self._selected)
         if detail is None:
@@ -68,9 +74,3 @@ class DrivePlotWidget(QWidget):
                                 item.setVisible(not item.isVisible())
                             )
             line.setData([point[0] for point in values], [point[1] for point in values])
-        self.timeline.blockSignals(True)
-        self.timeline.setRange(
-            max(0, frame.snapshot.step - theme.SNAPSHOT_HISTORY), frame.snapshot.step
-        )
-        self.timeline.setValue(frame.snapshot.step)
-        self.timeline.blockSignals(False)

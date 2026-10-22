@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from simlab.core.config import SimLabConfig, load_config
-from simlab.core.snapshot import SnapshotManager
+from simlab.core.snapshot import ActionLog, SnapshotManager
 from simlab.core.types import Action, AgentState, Snapshot, StepResult
 from simlab.core.world import World
 
@@ -108,9 +108,13 @@ class Runner:
             if agent_actions
             else {aid: self._default_action(aid) for aid in self._world._agents}
         )
+        action_index = self._step_count
         result = self._world.step(actions)
         self._step_count = self._world.get_step_count()
-        self.action_log.append(actions)
+        if action_index < len(self.action_log):
+            self.action_log[action_index] = actions
+        else:
+            self.action_log.append(actions)
         self._snapshot_manager.add(result.snapshot)
         return result
 
@@ -146,6 +150,22 @@ class Runner:
 
     def snapshot(self) -> Snapshot | None:
         return self._world.snapshot() if self._is_running else None
+
+    def restore(self, snapshot: Snapshot, preserve_action_log: bool = True) -> None:
+        """Restore a checkpoint while optionally retaining recorded actions."""
+        self._world.restore(snapshot)
+        self._world.width = snapshot.width
+        self._world.height = snapshot.height
+        self._world.dt = snapshot.dt
+        self._step_count = snapshot.step
+        self._is_running = True
+        if not preserve_action_log:
+            self.action_log.clear()
+            self._snapshots.clear()
+        self._snapshot_manager.add(snapshot)
+
+    def export_action_log(self) -> ActionLog:
+        return ActionLog.from_steps(self._seed, self.action_log)
 
     def reset(self) -> None:
         self._is_running = False

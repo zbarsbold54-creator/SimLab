@@ -5,18 +5,29 @@ from __future__ import annotations
 import time
 from collections import OrderedDict
 from pathlib import Path
+from types import MappingProxyType
 
 from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QApplication, QDockWidget, QLabel, QMainWindow, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QDockWidget,
+    QFileDialog,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QWidget,
+)
 
 from simlab.core.config import load_config
+from simlab.core.types import Snapshot
 from simlab.gui import theme
 from simlab.gui.drive_plot import DrivePlotWidget
+from simlab.gui.frame import SimulationFrame
 from simlab.gui.inspector import InspectorWidget
 from simlab.gui.scenario import ScenarioWidget
 from simlab.gui.sim_worker import SimWorker
-from simlab.gui.toolbar import SimulationToolbar
+from simlab.gui.toolbar import SessionToolbar, SimulationToolbar
 from simlab.gui.world_view import WorldView
 
 
@@ -38,6 +49,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(theme.WINDOW_MIN_WIDTH, theme.WINDOW_MIN_HEIGHT)
         self.toolbar = SimulationToolbar(self)
         self.addToolBar(self.toolbar)
+        self.session_toolbar = SessionToolbar(self)
+        self.addToolBarBreak(Qt.ToolBarArea.TopToolBarArea)
+        self.addToolBar(self.session_toolbar)
         self.world_view = WorldView(self)
         self.setCentralWidget(self.world_view)
         self._render_frames = 0
@@ -51,6 +65,7 @@ class MainWindow(QMainWindow):
         self.worker = SimWorker(config, seed, agents=agent_count)
         self._config = config
         self._frame_history = OrderedDict()
+        self._snapshot_history = OrderedDict()
         self._selected_agent: str | None = None
         policies, drives = self.worker.registry_options
         self.scenario = ScenarioWidget(config, policies, drives, seed)
@@ -72,6 +87,7 @@ class MainWindow(QMainWindow):
         self._thread.started.connect(self.worker.run)
         self.worker.snapshotReady.connect(self._accept_snapshot)
         self.worker.frameReady.connect(self._accept_frame)
+        self.worker.historyReady.connect(self._accept_history)
         self.worker.metricsReady.connect(self._accept_metrics)
         self.worker.stopped.connect(self._thread.quit)
         self.toolbar.playPause.connect(
@@ -83,14 +99,18 @@ class MainWindow(QMainWindow):
         self.toolbar.speedChanged.connect(
             self.worker.set_speed, Qt.ConnectionType.DirectConnection
         )
-        self.toolbar.resetRequested.connect(
-            self.worker.request_reset, Qt.ConnectionType.DirectConnection
+        self.toolbar.resetRequested.connect(self._request_reset)
+        self.session_toolbar.saveSnapshotRequested.connect(self._save_snapshot)
+        self.session_toolbar.loadSnapshotRequested.connect(self._load_snapshot)
+        self.session_toolbar.recordingChanged.connect(
+            self.worker.set_recording, Qt.ConnectionType.DirectConnection
         )
+        self.session_toolbar.replayRequested.connect(self._start_replay)
         self.world_view.agentSelected.connect(self._select_agent)
         self.scenario.applyRequested.connect(self._apply_scenario)
         self.drive_plot.timelineChanged.connect(self._seek_timeline)
-        self.toolbar.follow.toggled.connect(self.world_view.set_follow_selected)
-        for name, checkbox in self.toolbar.overlay_checks.items():
+        self.session_toolbar.follow.toggled.connect(self.world_view.set_follow_selected)
+        for name, checkbox in self.session_toolbar.overlay_checks.items():
             checkbox.toggled.connect(
                 lambda enabled, overlay=name: self.world_view.set_overlay(
                     overlay, enabled
@@ -129,6 +149,28 @@ class MainWindow(QMainWindow):
         self.inspector.set_agent(frame, self._selected_agent)
         self.drive_plot.update_frame(frame)
 
+    def _accept_history(self, snapshots) -> None:
+        for snapshot in snapshots:
+            self._snapshot_history[snapshot.step] = snapshot
+            self._snapshot_history.move_to_end(snapshot.step)
+        while len(self._snapshot_history) > theme.SNAPSHOT_HISTORY:
+            self._snapshot_history.popitem(last=False)
+        if self._snapshot_history:
+            self.drive_plot.set_timeline_range(
+                next(iter(self._snapshot_history)),
+                next(reversed(self._snapshot_history)),
+                self.worker.latest_snapshot.step,
+            )
+
+    def _request_reset(self, seed: int) -> None:
+        self._frame_history.clear()
+        self._snapshot_history.clear()
+        self.worker.request_reset(seed)
+
+    def _start_replay(self) -> None:
+        self.toolbar.set_playing(True)
+        self.worker.request_replay()
+
     def _select_agent(self, agent_id: str | None) -> None:
         self._selected_agent = agent_id
         self.drive_plot.select_agent(agent_id)
@@ -145,15 +187,46 @@ class MainWindow(QMainWindow):
             f"Seed {self._seed} · {config.agent.count} agents · {config.hazard.count} hazards"
         )
         self._frame_history.clear()
+        self._snapshot_history.clear()
         self.worker.request_scenario(self._seed, config)
 
     def _seek_timeline(self, step: int) -> None:
-        frame = self._frame_history.get(step)
-        if frame is None:
+        if not self._snapshot_history:
             return
+        snapshot_step = min(self._snapshot_history, key=lambda value: abs(value - step))
+        snapshot = self._snapshot_history[snapshot_step]
+        frame = self._frame_history.get(snapshot_step)
+        if frame is None:
+            frame = SimulationFrame(snapshot, MappingProxyType({}), ())
         self.world_view.set_frame(frame)
         self.inspector.set_agent(frame, self._selected_agent)
+        self.toolbar.set_playing(False)
         self.worker.request_restore(frame)
+
+    def _save_snapshot(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save snapshot", "simlab_snapshot.json", "SimLab snapshot (*.json)"
+        )
+        if not path:
+            return
+        base_path = Path(path).with_suffix("")
+        self.worker.latest_snapshot.save(str(base_path))
+        self.status_label.setText(f"Snapshot saved: {base_path}.json + .npz")
+
+    def _load_snapshot(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load snapshot", "", "SimLab snapshot (*.json *.npz)"
+        )
+        if not path:
+            return
+        try:
+            snapshot = Snapshot.load(path)
+        except (OSError, ValueError, KeyError) as error:
+            QMessageBox.warning(self, "Could not load snapshot", str(error))
+            return
+        self._frame_history.clear()
+        self._snapshot_history.clear()
+        self.worker.request_restore(snapshot)
 
     def _accept_metrics(
         self, steps_per_second: float, elapsed: float, step: int, seed: int

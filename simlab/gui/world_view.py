@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QWidget
 
 from simlab.core.types import Snapshot
 from simlab.gui import theme
-from simlab.gui.sim_worker import SimulationFrame
+from simlab.gui.frame import SimulationFrame
 
 
 def agent_triangle_vertices(

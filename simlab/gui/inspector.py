@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from simlab.gui import theme
-from simlab.gui.sim_worker import SimulationFrame
+from simlab.gui.frame import SimulationFrame
 
 
 class InspectorWidget(QWidget):
