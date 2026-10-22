@@ -109,3 +109,23 @@ random seed=19 survival_steps=1190 cause=hazard_damage food_eaten=0 configured_m
 ```
 
 The heuristic runs consume food but the current finite food supply runs out, after which energy reaches zero and health drains. Random runs do not find food reliably and usually die from chasing hazards before starvation. Neither policy reached the 100000-step limit.
+
+## Phase 3 — GUI shell
+
+Status: GUI shell implemented; Phase 3 gate verified from `.venv`.
+
+- Added a dark Qt window, toolbar, antialiased world renderer with zoom/pan, and a simulation worker hosted in a `QThread`.
+- The worker publishes deeply immutable `Snapshot` instances; the GUI timer renders the newest snapshot at no more than 60 FPS.
+- Added speed, play/pause, single-step, reset/seed controls and status for step, sim time, render FPS, sim steps/s, and seed.
+- `python -m simlab.cli gui` lazily imports the GUI; a subprocess test confirms `import simlab.core` does not load PySide6.
+- Added an offscreen `QApplication` worker smoke test and `scripts/render_screenshot.py`.
+
+Gate output:
+
+```text
+20 passed in 1.28s
+agents=20 speed=10x render_fps=55.4 sim_steps_per_second=100.8
+agents=20 speed=Max render_fps=48.6 sim_steps_per_second=125.0
+```
+
+Screenshot: `docs/screenshots/phase3.png`.

@@ -27,7 +27,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "bench":
         return run_benchmark(args.steps, args.agents)
     if args.command == "gui":
-        parser.error("GUI is scheduled for Phase 3")
+        from simlab.gui.app import main as gui_main
+
+        return gui_main()
     parser.print_help()
     return 1
 

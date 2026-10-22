@@ -19,6 +19,7 @@ from simlab.core.types import (
     Snapshot,
     StepResult,
     canonicalize,
+    thaw,
 )
 
 
@@ -333,8 +334,8 @@ class World:
     def restore(self, snapshot: Snapshot) -> None:
         self._seed = int(snapshot.metadata.get("seed", self._seed))
         self._step_count = snapshot.step
-        self._food_patches = [dict(patch) for patch in snapshot.food_patches]
-        self._hazard_patches = [dict(patch) for patch in snapshot.hazard_patches]
+        self._food_patches = [thaw(patch) for patch in snapshot.food_patches]
+        self._hazard_patches = [thaw(patch) for patch in snapshot.hazard_patches]
         self._agents = {
             agent_id: {
                 "position": tuple(state.position),
@@ -350,9 +351,9 @@ class World:
             for agent_id, state in snapshot.agent_states.items()
         }
         self._rng = SimRNG(0)
-        self._rng.state = copy.deepcopy(dict(snapshot.rng_state))
+        self._rng.state = thaw(snapshot.rng_state)
         self._metadata = {
-            key: copy.deepcopy(value)
+            key: thaw(value)
             for key, value in snapshot.metadata.items()
             if key != "seed"
         }

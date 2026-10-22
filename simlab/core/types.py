@@ -35,6 +35,30 @@ def canonicalize(value: Any) -> Any:
     )
 
 
+def freeze(value: Any) -> Any:
+    """Recursively freeze containers and copy arrays into read-only storage."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: freeze(item) for key, item in value.items()})
+    if isinstance(value, np.ndarray):
+        result = value.copy()
+        result.setflags(write=False)
+        return result
+    if isinstance(value, (tuple, list)):
+        return tuple(freeze(item) for item in value)
+    return value
+
+
+def thaw(value: Any) -> Any:
+    """Return mutable containers and independent arrays for restoration."""
+    if isinstance(value, Mapping):
+        return {key: thaw(item) for key, item in value.items()}
+    if isinstance(value, np.ndarray):
+        return value.copy()
+    if isinstance(value, tuple):
+        return tuple(thaw(item) for item in value)
+    return value
+
+
 @dataclass(frozen=True)
 class Action:
     turn: float = 0.0
@@ -112,6 +136,13 @@ class Snapshot:
     dt: float
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "agent_states", freeze(self.agent_states))
+        object.__setattr__(self, "food_patches", freeze(self.food_patches))
+        object.__setattr__(self, "hazard_patches", freeze(self.hazard_patches))
+        object.__setattr__(self, "rng_state", freeze(self.rng_state))
+        object.__setattr__(self, "metadata", freeze(self.metadata))
+
     @property
     def world_state(self) -> np.ndarray:
         raster = np.zeros((int(self.height) + 1, int(self.width) + 1), dtype=np.int8)
@@ -142,13 +173,13 @@ class Snapshot:
                 }
                 for agent_id, state in self.agent_states.items()
             },
-            "food_patches": [dict(patch) for patch in self.food_patches],
-            "hazard_patches": [dict(patch) for patch in self.hazard_patches],
-            "rng_state": dict(self.rng_state),
+            "food_patches": [thaw(patch) for patch in self.food_patches],
+            "hazard_patches": [thaw(patch) for patch in self.hazard_patches],
+            "rng_state": thaw(self.rng_state),
             "width": self.width,
             "height": self.height,
             "dt": self.dt,
-            "metadata": dict(self.metadata),
+            "metadata": thaw(self.metadata),
         }
 
     def save(self, base_path: str) -> tuple[str, str]:
