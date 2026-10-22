@@ -4,13 +4,16 @@
 
 Status: Phase 1 gate passed and committed as `Phase 1: verified deterministic core`.
 
-Audit findings before repair:
+## Phase 1 audit
 
-- `python -m simlab.cli --version` was unsupported.
-- The world used a grid, global `np.random.seed`, and mutable dict state that removed dead agents.
-- The runner created policy actions and duplicated state outside the World; `run_episode` referenced a missing registry.
-- Snapshots did not reliably include the Generator state and were assembled partly by the runner.
-- Tests were duplicated under `simlab/tests/` and scratch files were collected by pytest.
+The initial audit found these real defects and addressed them as follows:
+
+- `python -m simlab.cli --version` was unsupported; the CLI now exposes the package version.
+- The world used a grid and global `np.random.seed`; it now uses continuous motion and one `numpy.Generator`.
+- Dead agents were removed and state was mirrored in the runner; the World now retains full agent state and owns snapshots.
+- `run_episode` referenced a missing registry; it now consumes World state directly.
+- Snapshots omitted reliable Generator state; snapshots now carry the complete state and restore exact futures.
+- Tests were duplicated under `simlab/tests/` and scratch files were collected; tests now live in root `tests/` with pytest discovery restricted there.
 
 What exists now:
 
