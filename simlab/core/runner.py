@@ -160,6 +160,7 @@ class Runner:
 
         # Capture snapshot using World's snapshot method (contains ALL state)
         snapshot = self._world.snapshot()
+        self._snapshot_manager._snapshots[self._step_count] = snapshot
 
         # Update step count
         self._step_count += 1

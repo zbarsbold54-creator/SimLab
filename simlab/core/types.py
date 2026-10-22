@@ -55,10 +55,10 @@ class Snapshot:
     """
     step: int  # Step number
     world_state: np.ndarray  # World state array (shape: width x height)
-    agent_positions: Dict[str, Tuple[int, int]]  # Agent positions
-    agent_energies: Dict[str, float]  # Agent energy levels
+    agent_states: Dict[str, AgentState]  # Agent states with position, energy, is_alive
     food_patches: List[Tuple[int, int]]  # Positions of food patches
     hazard_patches: List[Tuple[int, int]]  # Positions of hazard patches
+    rng_state: Optional[np.random.RandomState] = None  # RNG state for determinism
     metadata: Dict[str, Any] = field(default_factory=dict)  # Additional metadata
 
     def to_dict(self) -> Dict[str, Any]:
@@ -66,10 +66,16 @@ class Snapshot:
         return {
             "step": self.step,
             "world_state": self.world_state.tolist(),
-            "agent_positions": self.agent_positions,
-            "agent_energies": self.agent_energies,
+            "agent_states": {aid: {
+                "position": state.position,
+                "energy": state.energy,
+                "max_energy": state.max_energy,
+                "is_alive": state.is_alive,
+                "agent_id": state.agent_id,
+            } for aid, state in self.agent_states.items()},
             "food_patches": self.food_patches,
             "hazard_patches": self.hazard_patches,
+            "rng_state": None,  # RNG state not serializable, set during restore
             "metadata": self.metadata,
         }
 
@@ -77,12 +83,24 @@ class Snapshot:
     def from_dict(cls, data: Dict[str, Any]) -> "Snapshot":
         """Create snapshot from serializable dictionary."""
         world_state = np.array(data["world_state"], dtype=np.int8)
+        agent_states = {}
+        for aid, adata in data.get("agent_states", {}).items():
+            agent_states[aid] = AgentState(
+                position=tuple(adata["position"]),
+                energy=adata["energy"],
+                max_energy=adata.get("max_energy", 100.0),
+                is_alive=adata.get("is_alive", True),
+                agent_id=adata.get("agent_id", aid),
+            )
+        rng_state = None
+        if data.get("rng_state") is not None:
+            rng_state = np.random.RandomState(data["rng_state"])
         return cls(
             step=data["step"],
             world_state=world_state,
-            agent_positions=data["agent_positions"],
-            agent_energies=data["agent_energies"],
+            agent_states=agent_states,
             food_patches=data.get("food_patches", []),
             hazard_patches=data.get("hazard_patches", []),
+            rng_state=rng_state,
             metadata=data.get("metadata", {}),
         )

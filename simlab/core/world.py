@@ -81,6 +81,7 @@ class World:
         self._agents[agent_id] = {
             "position": (x, y),
             "energy": energy,
+            "max_energy": energy,
             "is_alive": True,
         }
     
@@ -168,7 +169,7 @@ class World:
                 for idx in sorted(food_indices, reverse=True):
                     self._food_patches.pop(idx)
                 agent["energy"] = min(
-                    agent["energy"] + 10.0, 100.0
+                    agent["energy"] + 10.0, agent["max_energy"]
                 )
         
         # Process hazard damage
@@ -208,16 +209,22 @@ class World:
         for agent_id, agent in self._agents.items():
             observations[agent_id] = self._build_observation(agent_id)
         
+        # Build agent states dict for snapshot
+        agent_states = {}
+        for aid, agent in self._agents.items():
+            agent_states[aid] = AgentState(
+                position=agent["position"],
+                energy=agent["energy"],
+                max_energy=agent.get("max_energy", 100.0),
+                is_alive=agent.get("is_alive", True),
+                agent_id=aid,
+            )
+        
         # Create snapshot
         snapshot = Snapshot(
             step=self._step_count,
             world_state=self._world.copy(),
-            agent_positions={
-                aid: agent["position"] for aid, agent in self._agents.items()
-            },
-            agent_energies={
-                aid: agent["energy"] for aid, agent in self._agents.items()
-            },
+            agent_states=agent_states,
             food_patches=self._food_patches,
             hazard_patches=self._hazard_patches,
         )
@@ -295,17 +302,29 @@ class World:
             Snapshot of the current world state containing ALL state
             for deterministic replay.
         """
+        # Build agent states dict from internal agent storage
+        agent_states = {}
+        for aid, agent in self._agents.items():
+            agent_states[aid] = AgentState(
+                position=agent["position"],
+                energy=agent["energy"],
+                max_energy=agent.get("max_energy", 100.0),
+                is_alive=agent.get("is_alive", True),
+                agent_id=aid,
+            )
+        
+        # Get RNG state from the world's random number generator
+        rng_state = None
+        if hasattr(self, '_rng') and self._rng is not None:
+            rng_state = self._rng.state
+        
         return Snapshot(
             step=self._step_count,
             world_state=self._world.copy(),
-            agent_positions={
-                aid: agent["position"] for aid, agent in self._agents.items()
-            },
-            agent_energies={
-                aid: agent["energy"] for aid, agent in self._agents.items()
-            },
+            agent_states=agent_states,
             food_patches=list(self._food_patches),
             hazard_patches=list(self._hazard_patches),
+            rng_state=rng_state,
         )
     
     def restore(self, snapshot: Snapshot) -> None:
@@ -320,18 +339,22 @@ class World:
         self._food_patches = []
         self._hazard_patches = []
         
-        # Restore agent positions and energies from snapshot
-        for agent_id, pos in snapshot.agent_positions.items():
-            energy = snapshot.agent_energies.get(agent_id, 100.0)
-            self._agents[agent_id] = {
-                "position": pos,
-                "energy": energy,
-                "is_alive": True,
+        # Restore agent states from snapshot
+        for aid, state in snapshot.agent_states.items():
+            self._agents[aid] = {
+                "position": state.position,
+                "energy": state.energy,
+                "max_energy": state.max_energy,
+                "is_alive": state.is_alive,
             }
         
         # Restore food and hazard patches from snapshot
         self._food_patches = list(snapshot.food_patches)
         self._hazard_patches = list(snapshot.hazard_patches)
+        
+        # Restore RNG state for determinism
+        if snapshot.rng_state is not None:
+            np.random.seed(snapshot.rng_state)
     
     def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Get agent state.
