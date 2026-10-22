@@ -73,6 +73,10 @@ N/A - project structure only at this point
 - [x] Removed _entity_registry from runner (reads state from world directly)
 - [x] CLI entry point created (python -m simlab.cli run --steps 1000 --seed 1)
 - [x] All 3 Phase 1 tests pass
+- [x] Snapshot design fixed: World produces its own snapshot with ALL state (agent fields, food, step counter, RNG state)
+- [x] Runner no longer passes agent_positions/agent_energies into snapshot
+- [x] Simulation evolves with different seeds (verified: seed 1 ≠ seed 2)
+- [x] Run summary includes: steps, seed, per-agent final position, energy, food eaten, final state hash
 
 ### Open issues:
 - Full integration testing of all modules together
