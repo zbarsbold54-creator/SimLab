@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from typing import Any
@@ -18,9 +19,11 @@ class Runner:
         config: SimLabConfig | None = None,
         seed: int | None = None,
         rng: Any = None,
+        agents: int = 1,
     ) -> None:
         self._config = config or load_config()
         self._seed = self._config.world.seed if seed is None else seed
+        self._agent_count = max(1, int(agents))
         self._world = World(
             self._config.world.width, self._config.world.height, self._seed
         )
@@ -36,12 +39,16 @@ class Runner:
         self._step_count = 0
         self._snapshots.clear()
         self.action_log.clear()
-        x = float(self._world._rng.uniform(10.0, self._world.width - 10.0))
-        y = float(self._world._rng.uniform(10.0, self._world.height - 10.0))
-        heading = float(self._world._rng.uniform(-3.14, 3.14))
-        self._world.add_agent(
-            "agent_0", (x, y), self._config.agent.initial_energy, heading=heading
-        )
+        for index in range(self._agent_count):
+            x = float(self._world._rng.uniform(10.0, self._world.width - 10.0))
+            y = float(self._world._rng.uniform(10.0, self._world.height - 10.0))
+            heading = float(self._world._rng.uniform(-3.14, 3.14))
+            self._world.add_agent(
+                f"agent_{index}",
+                (x, y),
+                self._config.agent.initial_energy,
+                heading=heading,
+            )
         count = min(
             self._config.food.max_food,
             max(
@@ -85,13 +92,11 @@ class Runner:
                     + (patch["position"][1] - state["position"][1]) ** 2
                 ),
             )
-            desired = __import__("math").atan2(
+            desired = math.atan2(
                 target["position"][1] - state["position"][1],
                 target["position"][0] - state["position"][0],
             )
-            delta = (desired - state["heading"] + __import__("math").pi) % (
-                2 * __import__("math").pi
-            ) - __import__("math").pi
+            delta = (desired - state["heading"] + math.pi) % (2 * math.pi) - math.pi
             return Action(float(max(-1.0, min(1.0, delta))), 0.8, True)
         return Action(0.25, 0.5, False)
 

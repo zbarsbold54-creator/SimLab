@@ -111,7 +111,6 @@ class Snapshot:
     height: float
     dt: float
     metadata: Mapping[str, Any] = field(default_factory=dict)
-    terrain: np.ndarray | None = None
 
     @property
     def world_state(self) -> np.ndarray:
@@ -150,7 +149,6 @@ class Snapshot:
             "height": self.height,
             "dt": self.dt,
             "metadata": dict(self.metadata),
-            "terrain": self.terrain if self.terrain is not None else self.world_state,
         }
 
     def save(self, base_path: str) -> tuple[str, str]:
@@ -167,11 +165,7 @@ class Snapshot:
                 sort_keys=True,
                 separators=(",", ":"),
             )
-        np.savez_compressed(
-            npz_path,
-            world_state=self.world_state,
-            terrain=self.terrain if self.terrain is not None else self.world_state,
-        )
+        np.savez_compressed(npz_path, world_state=self.world_state)
         return str(json_path), str(npz_path)
 
     @classmethod
@@ -185,18 +179,10 @@ class Snapshot:
         with np.load(base.with_suffix(".npz")) as archive:
             if "world_state" not in archive:
                 raise ValueError("snapshot npz is missing world_state")
-            if "terrain" in archive:
-                data["terrain"] = archive["terrain"].tolist()
         return cls.from_dict(data)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Snapshot:
-        terrain_data = data.get("terrain")
-        if isinstance(terrain_data, dict) and terrain_data.get("__ndarray__"):
-            terrain_data = np.frombuffer(
-                bytes.fromhex(terrain_data["data"]),
-                dtype=np.dtype(terrain_data["dtype"]),
-            ).reshape(tuple(terrain_data["shape"]))
         agents = {
             aid: AgentState(**{**state, "position": tuple(state["position"])})
             for aid, state in data["agent_states"].items()
@@ -219,9 +205,6 @@ class Snapshot:
             float(data["height"]),
             float(data["dt"]),
             MappingProxyType(dict(data.get("metadata", {}))),
-            np.asarray(terrain_data, dtype=np.float32)
-            if terrain_data is not None
-            else None,
         )
 
 

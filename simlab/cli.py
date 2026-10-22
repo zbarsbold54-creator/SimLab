@@ -19,12 +19,13 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--seed", type=int, default=None)
     bench = subs.add_parser("bench")
     bench.add_argument("--steps", type=int, default=1000)
+    bench.add_argument("--agents", type=int, default=1)
     subs.add_parser("gui")
     args = parser.parse_args(argv)
     if args.command == "run":
         return run_simulation(args.steps, args.seed)
     if args.command == "bench":
-        return run_benchmark(args.steps)
+        return run_benchmark(args.steps, args.agents)
     if args.command == "gui":
         parser.error("GUI is scheduled for Phase 3")
     parser.print_help()
@@ -50,11 +51,14 @@ def run_simulation(steps: int, seed: int | None = None) -> int:
     return 0
 
 
-def run_benchmark(steps: int) -> int:
-    runner = Runner(load_config(), 42)
+def run_benchmark(steps: int, agents: int = 1) -> int:
+    runner = Runner(load_config(), 42, agents=agents)
     runner.setup()
     runner.run_bench(steps)
-    print(f"steps={steps} steps_per_second={runner.last_bench_steps_per_second:.1f}")
+    print(
+        f"agents={agents} steps={steps} "
+        f"steps_per_second={runner.last_bench_steps_per_second:.1f}"
+    )
     return 0
 
 

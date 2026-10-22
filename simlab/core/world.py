@@ -40,7 +40,7 @@ class World:
         self._agents: dict[str, dict[str, Any]] = {}
         self._food_patches: list[dict[str, Any]] = []
         self._hazard_patches: list[dict[str, Any]] = []
-        self._terrain = np.zeros((256, 256), dtype=np.float32)
+        self._metadata: dict[str, Any] = {}
         self._step_count = 0
 
     @property
@@ -62,7 +62,7 @@ class World:
         self._agents.clear()
         self._food_patches.clear()
         self._hazard_patches.clear()
-        self._terrain.fill(0.0)
+        self._metadata.clear()
         self._step_count = 0
 
     def add_agent(
@@ -327,8 +327,7 @@ class World:
             self.width,
             self.height,
             self.dt,
-            MappingProxyType({"seed": self._seed}),
-            self._terrain.copy(),
+            MappingProxyType({"seed": self._seed, **copy.deepcopy(self._metadata)}),
         )
 
     def restore(self, snapshot: Snapshot) -> None:
@@ -352,11 +351,11 @@ class World:
         }
         self._rng = SimRNG(0)
         self._rng.state = copy.deepcopy(dict(snapshot.rng_state))
-        self._terrain = (
-            snapshot.terrain.copy()
-            if snapshot.terrain is not None
-            else np.zeros((256, 256), dtype=np.float32)
-        )
+        self._metadata = {
+            key: copy.deepcopy(value)
+            for key, value in snapshot.metadata.items()
+            if key != "seed"
+        }
 
     def state_hash(self) -> str:
         canonical = canonicalize(self.snapshot().to_dict())

@@ -1,5 +1,7 @@
 """Phase 1 hardening coverage."""
 
+import numpy as np
+
 from simlab.core.types import Action
 from simlab.core.world import World
 
@@ -49,8 +51,9 @@ def test_rng_state_is_hashed() -> None:
 
 def test_last_large_array_element_is_hashed() -> None:
     world = base_world()
+    world._metadata["large_array"] = np.zeros((1024, 1024), dtype=np.float32)
     before = world.state_hash()
-    world._terrain[-1, -1] = 1.0
+    world._metadata["large_array"][-1, -1] = 1.0
     assert world.state_hash() != before
 
 
