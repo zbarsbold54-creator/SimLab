@@ -155,7 +155,14 @@ class Runner:
 
     def run_bench(self, num_steps: int) -> list[StepResult]:
         started = time.perf_counter()
-        results = [self.run_step() for _ in range(num_steps)]
+        results = [
+            self.run_step(
+                include_observations=False,
+                include_snapshot=False,
+                include_agent_states=False,
+            )
+            for _ in range(num_steps)
+        ]
         self.last_bench_steps_per_second = num_steps / max(
             time.perf_counter() - started, 1e-9
         )

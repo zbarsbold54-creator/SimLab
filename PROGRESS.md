@@ -279,3 +279,34 @@ agents=20 overlays=all selected=agent_0 speed=Max render_fps=21.7 sim_steps_per_
 - `python -m simlab.cli bench --agents 20`: final rerun printed `agents=20 steps=1000 steps_per_second=1073.7` (a prior run printed 1119.3).
 - Full `.venv` test run: 33 passed. Ruff check and format check both pass. `where.exe python` listed `.venv` first and `sys.prefix` was `C:\AI\SimulationCode\.venv`.
 - Real-window inspection could not be completed: the desktop automation inventory exposed no application/native window, including after starting the CLI GUI. The offscreen Qt smoke test passed, but the real interactive rendering has not been visually verified in this session.
+
+## Verification 2 and world tuning sweep
+
+- Added `tests/test_fast_path.py::test_max_batch_matches_headless_hashes_for_1000_steps`. It drives the same `_advance_one_step` helper used by the GUI worker in 32-step Max batches and compares the 20-agent worker and ordinary Runner hashes after every one of 1000 steps. It passed with the Phase 5 replay and disk restore tests (`3 passed in 3.36s`). This also checks the world RNG state because it is included in `state_hash()`.
+- Before the bench fast path, an uninstrumented 20-agent run measured 1073 steps/s. cProfile (profiler overhead included) showed 1000 `World.step` calls at 1.437 s cumulative, snapshots at 0.605 s, observations at 0.368 s, ray casts at 0.277 s, and `Runner._default_action` at 0.412 s. The CLI bench does not call registered drives or policy classes; it uses the Runner's built-in heuristic action. `run_bench` now skips unused observations, snapshots, and AgentState views while retaining the same state transitions and action log. After: 2593.4 steps/s in the final uninstrumented run; a cProfile run measured 1000 `World.step` calls at 0.414 s and default action generation at 0.393 s. Sensing, drive, and registered-policy calls are absent from this benchmark path.
+- The CLI bench and GUI Max rates measure different workloads. CLI bench now measures headless world stepping and Runner actions without rendering, observations, or per-step snapshots. GUI Max adds policy components, history/action storage, checkpoint snapshots every 25 steps, GUI frame construction and rendering, and a batch yield; its earlier measured rate was 1512.3 steps/s.
+- The default arena is set to 50x50 in `configs/default.toml` (and `WorldConfig` in `simlab/core/config.py`). `git log -S 'width = 50' -- configs/default.toml` and `git blame` identify commit `ab3b0b6 Initial project structure: pyproject.toml, README.md, PROGRESS.md, folder layout, core and interfaces stubs` as the commit that introduced the 50-unit dimensions. Added `configs/harsh_original.toml` as an unchanged named copy of the original config; `configs/default.toml` was not modified.
+- Energy-budget check, seed 1, one agent: initial energy 100; heuristic thrust 0.8 gives speed 6.4 and drain `(0.08 + 0.04*6.4)*0.1 = 0.0336` energy/step; energy alone lasts about 2976 steps, followed by 200 health-drain steps. There are 20 patches × 20 units = 400 initial food units, but no regrowth. The run consumed 20 units in 87 successful eat ticks, yielding about 20 / 0.0336 = 595 additional energy-equivalent steps and explaining the typical ~3770-step outcomes. `food_eaten` counts successful bite ticks, not whole patches. The 17 ordinary seeds cluster near the same duration because they obtain about one patch's 20 energy units before starvation; a few seeds happen to intersect more food.
+- No world food-regrowth mechanic exists: `food.spawn_rate` only determines initial patch count, capped by `food.max_food=20`. Therefore the requested 1x/3x/10x sweep uses the only existing food knob and reports the cap; those factors all produce 20 initial patches. This is not a regrowth experiment, and the script reports that limitation instead of changing world behavior. All 12 cells are below:
+
+```text
+detection food_factor initial_patches heuristic_median heuristic_cap_pct heuristic_starve/hazard/trunc random_median random_starve/hazard/trunc
+        8           1             20             3770               0.0   90/  10/   0          3629   42/  58/   0
+        8           3             20             3770               0.0   90/  10/   0          3629   42/  58/   0
+        8          10             20             3770               0.0   90/  10/   0          3629   42/  58/   0
+       12           1             20             3770               0.0   90/  10/   0          3500   34/  66/   0
+       12           3             20             3770               0.0   90/  10/   0          3500   34/  66/   0
+       12          10             20             3770               0.0   90/  10/   0          3500   34/  66/   0
+       16           1             20             3770               0.0   87/  13/   0          3238   27/  73/   0
+       16           3             20             3770               0.0   87/  13/   0          3238   27/  73/   0
+       16          10             20             3770               0.0   87/  13/   0          3238   27/  73/   0
+       30           1             20             3770               0.0   87/  13/   0          3599   39/  61/   0
+       30           3             20             3770               0.0   87/  13/   0          3599   39/  61/   0
+       30          10             20             3770               0.0   87/  13/   0          3599   39/  61/   0
+one_agent seed=1 policy=heuristic detection=30 food_factor=1 initial_patches=20 survival=3767 cause=starvation
+one_agent seed=1 policy=random detection=30 food_factor=1 initial_patches=20 survival=1343 cause=hazard
+current_food_budget=initial_energy:100 food_patches:20 food_amount_per_patch:20 total_food:400 regrowth_per_step:0
+energy_budget seed=1 survival=3767 starting_energy=100 heuristic_speed=6.4 drain_per_step=0.0336 energy_only_steps=2976.2 starvation_health_steps=200 food_consumed=20.0000 food_eaten_ticks=87 initial_food=400.0 regrowth_per_step=0
+```
+
+- Every five-agent cell had 0% heuristic cap survivors. With finite food and positive drain, indefinite survival is impossible in the current implementation; no parameter recommendation can meet the requested indefinite-survival condition without a real regrowth mechanism. Conditional candidates after a regrowth rate is defined are detection radius 12 or 16; hazard deaths were 10-13% in those cells. A moving heuristic agent needs about 0.0336 energy per step, or 0.168 per step for five agents before accounting for food availability. No default was changed.

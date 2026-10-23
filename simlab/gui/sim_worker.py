@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from simlab.core.config import SimLabConfig, load_config
 from simlab.core.runner import Runner
+from simlab.core.types import Action, StepResult
 from simlab.gui import theme
 from simlab.gui.frame import AgentFrame, SimulationFrame
 from simlab.gui.worker_components import WorkerComponents
@@ -55,6 +56,39 @@ class SimWorker(QObject, WorkerControls):
             MappingProxyType({}),
             self._components.drive_names,
         )
+
+    def _advance_one_step(
+        self,
+    ) -> tuple[dict[str, Action], object, StepResult, object] | None:
+        with self._lock:
+            if self._stopping:
+                return None
+            world = self._runner._world
+            action_step = self._runner._step_count
+            actions = self._history.action_for(action_step)
+        if actions is None:
+            actions, details = self._components.actions_for(world, action_step)
+        else:
+            details = MappingProxyType(
+                {
+                    agent_id: AgentFrame(action, None, ())
+                    for agent_id, action in actions.items()
+                }
+            )
+        with self._lock:
+            self._history.record(action_step, actions)
+        result = self._runner.run_step(
+            actions,
+            include_observations=False,
+            include_snapshot=False,
+            include_agent_states=False,
+        )
+        checkpoint = None
+        if self._runner._step_count % theme.HISTORY_SNAPSHOT_INTERVAL == 0:
+            checkpoint = world.snapshot()
+            with self._lock:
+                self._history.add_snapshot(checkpoint)
+        return actions, details, result, checkpoint
 
     @Slot()
     def run(self) -> None:
@@ -233,36 +267,13 @@ class SimWorker(QObject, WorkerControls):
             steps_to_run += step_budget
             checkpoint_snapshot = None
             for _ in range(steps_to_run):
-                with self._lock:
-                    if self._stopping:
-                        break
-                    world = self._runner._world
-                    action_step = self._runner._step_count
-                    actions = self._history.action_for(action_step)
-                if actions is None:
-                    actions, details = self._components.actions_for(world, action_step)
-                else:
-                    details = MappingProxyType(
-                        {
-                            agent_id: AgentFrame(action, None, ())
-                            for agent_id, action in actions.items()
-                        }
-                    )
-                with self._lock:
-                    self._history.record(action_step, actions)
-                result = self._runner.run_step(
-                    actions,
-                    include_observations=False,
-                    include_snapshot=False,
-                    include_agent_states=False,
-                )
+                advanced = self._advance_one_step()
+                if advanced is None:
+                    break
+                actions, details, result, checkpoint_snapshot = advanced
                 latest_actions = actions
                 latest_details = details
                 window_steps += 1
-                if self._runner._step_count % theme.HISTORY_SNAPSHOT_INTERVAL == 0:
-                    checkpoint_snapshot = world.snapshot()
-                    with self._lock:
-                        self._history.add_snapshot(checkpoint_snapshot)
                 if result.terminated:
                     seek_target = None
                     with self._lock:
