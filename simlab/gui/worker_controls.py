@@ -22,6 +22,7 @@ class WorkerControls:
         self._speed = theme.DEFAULT_SPEED
         self._requested_seed: int | None = None
         self._requested_snapshot: SimulationFrame | Snapshot | None = None
+        self._requested_seek_step: int | None = None
         self._requested_scenario: tuple[int, SimLabConfig] | None = None
         self._requested_replay = False
 
@@ -89,9 +90,18 @@ class WorkerControls:
     def request_restore(self, frame: SimulationFrame | Snapshot) -> None:
         with self._lock:
             self._requested_snapshot = frame
+            self._requested_seek_step = None
             self._playing = False
             snapshot = frame.snapshot if isinstance(frame, SimulationFrame) else frame
             self._history.resume_from(snapshot.step)
+        self._wake.set()
+
+    def request_seek(self, frame: SimulationFrame, target_step: int) -> None:
+        with self._lock:
+            self._requested_snapshot = frame
+            self._requested_seek_step = max(frame.snapshot.step, int(target_step))
+            self._playing = False
+            self._history.resume_from(frame.snapshot.step)
         self._wake.set()
 
     def set_recording(self, enabled: bool) -> None:

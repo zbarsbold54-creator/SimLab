@@ -227,6 +227,8 @@ def test_phase4_scenario_applies_and_resets_using_current_seed() -> None:
 
 
 def test_phase5_timeline_scrub_resumes_recorded_actions() -> None:
+    from simlab.core.config import load_config
+    from simlab.core.runner import Runner
     from simlab.core.world import World
 
     app = QApplication.instance() or QApplication([])
@@ -236,27 +238,50 @@ def test_phase5_timeline_scrub_resumes_recorded_actions() -> None:
     window.show()
     window.worker.request_steps(40)
     deadline = time.monotonic() + 3.0
-    while len(window._snapshot_history) < 41 and time.monotonic() < deadline:
+    while window.worker.latest_snapshot.step < 40 and time.monotonic() < deadline:
         app.processEvents()
         time.sleep(0.01)
-    assert list(window._snapshot_history) == list(range(41))
+    assert list(window._snapshot_history) == [0, 25]
+
+    expected = Runner(load_config(), seed=31, agents=1)
+    expected.setup()
+    initial_actual = World(
+        width=expected._world.width,
+        height=expected._world.height,
+        seed=999,
+    )
+    initial_actual.restore(window._snapshot_history[0])
+    assert initial_actual.snapshot().to_dict() == expected._world.snapshot().to_dict()
+    expected_hashes = {0: expected._world.state_hash()}
+    for action_step in range(40):
+        expected.run_step(window.worker._history.actions[action_step])
+        expected_hashes[action_step + 1] = expected._world.state_hash()
 
     window._seek_timeline(20)
     deadline = time.monotonic() + 3.0
     while window.worker.latest_snapshot.step != 20 and time.monotonic() < deadline:
         app.processEvents()
         time.sleep(0.01)
+    sought = World(
+        width=expected._world.width,
+        height=expected._world.height,
+        seed=999,
+    )
+    sought.restore(window.worker.latest_snapshot)
+    assert sought.state_hash() == expected_hashes[20]
     window.worker.request_step()
     deadline = time.monotonic() + 3.0
     while window.worker.latest_snapshot.step != 21 and time.monotonic() < deadline:
         app.processEvents()
         time.sleep(0.01)
 
-    expected = World(seed=999)
-    expected.restore(window._snapshot_history[21])
-    actual = World(seed=999)
+    actual = World(
+        width=expected._world.width,
+        height=expected._world.height,
+        seed=999,
+    )
     actual.restore(window.worker.latest_snapshot)
-    assert actual.state_hash() == expected.state_hash()
+    assert actual.state_hash() == expected_hashes[21]
     window.close()
     app.processEvents()
 

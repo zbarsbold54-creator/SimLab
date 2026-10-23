@@ -243,7 +243,7 @@ class Snapshot:
 class StepResult:
     agent_states: Mapping[str, AgentState]
     observations: Mapping[str, Observation]
-    snapshot: Snapshot
+    snapshot: Snapshot | None
     terminated: bool
     truncated: bool = False
     reward: float | Mapping[str, float] = 0.0

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from collections import deque
 
+import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QSlider, QWidget
@@ -32,6 +34,7 @@ class DrivePlotWidget(QWidget):
         self._selected: str | None = None
         self._series: dict[str, deque[tuple[int, float]]] = {}
         self._lines: dict[str, object] = {}
+        self._last_plot_update = 0.0
 
     def select_agent(self, agent_id: str | None) -> None:
         self._selected = agent_id
@@ -58,6 +61,12 @@ class DrivePlotWidget(QWidget):
                     detail.drives[index] if index < len(detail.drives) else 0.0,
                 )
             )
+        now = time.perf_counter()
+        if now - self._last_plot_update < theme.DRIVE_PLOT_UPDATE_INTERVAL_S:
+            return
+        self._last_plot_update = now
+        for index, name in enumerate(frame.drive_names):
+            values = self._series[name]
             line = self._lines.get(name)
             if line is None:
                 line = self.plot.plot(
@@ -73,4 +82,5 @@ class DrivePlotWidget(QWidget):
                             label.mousePressEvent = lambda event, item=line: (
                                 item.setVisible(not item.isVisible())
                             )
-            line.setData([point[0] for point in values], [point[1] for point in values])
+            samples = np.asarray(values, dtype=np.float64)
+            line.setData(samples[:, 0], samples[:, 1])

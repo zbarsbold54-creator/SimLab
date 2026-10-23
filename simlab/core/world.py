@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from simlab.core.rng import SimRNG
+from simlab.core.sensors import ray_sensors, ray_sensors_batch
 from simlab.core.types import (
     Action,
     AgentState,
@@ -120,7 +121,14 @@ class World:
                 }
             )
 
-    def step(self, actions: dict[str, Action]) -> StepResult:
+    def step(
+        self,
+        actions: dict[str, Action],
+        *,
+        include_observations: bool = True,
+        include_snapshot: bool = True,
+        include_agent_states: bool = True,
+    ) -> StepResult:
         self._step_count += 1
         self._move_hazards()
         rewards: dict[str, float] = {}
@@ -140,12 +148,10 @@ class World:
             if state["health"] <= 0.0:
                 state["is_alive"] = False
             rewards[agent_id] = reward
-        states = self._state_view()
-        observations = {
-            agent_id: self._observation(agent_id) for agent_id in self._agents
-        }
-        snapshot = self.snapshot()
-        terminated = not any(state.alive for state in states.values())
+        states = self._state_view() if include_agent_states else {}
+        observations = self._observation_batch() if include_observations else {}
+        snapshot = self.snapshot() if include_snapshot else None
+        terminated = not any(state["is_alive"] for state in self._agents.values())
         return StepResult(
             MappingProxyType(states),
             MappingProxyType(observations),
@@ -176,15 +182,16 @@ class World:
         alive = [state for state in self._agents.values() if state["is_alive"]]
         for hazard in self._hazard_patches:
             hx, hy = hazard["position"]
-            nearby = [
-                state
-                for state in alive
-                if math.dist((hx, hy), state["position"]) <= hazard["detection_radius"]
-            ]
-            if nearby:
-                target = min(
-                    nearby, key=lambda state: math.dist((hx, hy), state["position"])
-                )
+            nearest_distance = hazard["detection_radius"] ** 2
+            target = None
+            for state in alive:
+                dx = state["position"][0] - hx
+                dy = state["position"][1] - hy
+                distance_squared = dx * dx + dy * dy
+                if distance_squared <= nearest_distance:
+                    nearest_distance = distance_squared
+                    target = state
+            if target is not None:
                 hazard["heading"] = math.atan2(
                     target["position"][1] - hy, target["position"][0] - hx
                 )
@@ -202,10 +209,9 @@ class World:
         if was_full:
             return 0.0
         for patch in self._food_patches:
-            if (
-                patch["amount"] <= 0.0
-                or math.dist(state["position"], patch["position"]) > 1.5
-            ):
+            dx = state["position"][0] - patch["position"][0]
+            dy = state["position"][1] - patch["position"][1]
+            if patch["amount"] <= 0.0 or dx * dx + dy * dy > 2.25:
                 continue
             available = min(patch["amount"], state["max_energy"] - state["energy"])
             if available <= 0.0:
@@ -218,7 +224,9 @@ class World:
 
     def _apply_hazard_damage(self, state: dict[str, Any]) -> None:
         for hazard in self._hazard_patches:
-            if math.dist(state["position"], hazard["position"]) <= hazard["radius"]:
+            dx = state["position"][0] - hazard["position"][0]
+            dy = state["position"][1] - hazard["position"][1]
+            if dx * dx + dy * dy <= hazard["radius"] ** 2:
                 state["health"] = max(0.0, state["health"] - hazard["damage"] * self.dt)
 
     def _state_view(self) -> dict[str, AgentState]:
@@ -239,78 +247,61 @@ class World:
         }
 
     def _observation(self, agent_id: str) -> Observation:
-        state = self._agents[agent_id]
-        distances, types = self._ray_sensors(state["position"], state["heading"])
-        return Observation(
-            tuple(distances),
-            tuple(types),
-            (
-                state["energy"] / state["max_energy"],
-                state["health"] / 100.0,
-                state["speed"] / 8.0,
-            ),
-            tuple(state["position"]),
-            state["energy"],
-            self._step_count,
+        return self._observation_batch()[agent_id]
+
+    def _observation_batch(self) -> dict[str, Observation]:
+        if not self._agents:
+            return {}
+        agent_ids = tuple(self._agents)
+        states = tuple(self._agents[agent_id] for agent_id in agent_ids)
+        positions = np.asarray(
+            [state["position"] for state in states], dtype=np.float64
         )
+        headings = np.asarray([state["heading"] for state in states], dtype=np.float64)
+        distances, types = ray_sensors_batch(
+            positions,
+            headings,
+            self.width,
+            self.height,
+            np.asarray(
+                [patch["position"] for patch in self._food_patches], dtype=np.float64
+            ).reshape(-1, 2),
+            np.asarray(
+                [patch["position"] for patch in self._hazard_patches],
+                dtype=np.float64,
+            ).reshape(-1, 2),
+            positions,
+        )
+        observations = {}
+        for index, (agent_id, state) in enumerate(zip(agent_ids, states)):
+            energy = state["energy"]
+            observations[agent_id] = Observation(
+                tuple(distances[index].tolist()),
+                tuple(types[index].tolist()),
+                (
+                    energy / state["max_energy"],
+                    state["health"] / 100.0,
+                    state["speed"] / 8.0,
+                ),
+                tuple(state["position"]),
+                energy,
+                self._step_count,
+            )
+        return observations
 
     def _ray_sensors(
         self, position: tuple[float, float], heading: float, count: int = 16
     ) -> tuple[list[float], list[int]]:
-        distances: list[float] = []
-        types: list[int] = []
-        offsets = np.linspace(-math.radians(135), math.radians(135), count)
-        offsets[count // 2] = 0.0
-        for angle in heading + offsets:
-            dx, dy = math.cos(float(angle)), math.sin(float(angle))
-            wall_distance = self._wall_distance(position, dx, dy)
-            hit_distance, hit_type = wall_distance, 3
-            for patch in self._food_patches:
-                distance = self._ray_point_distance(
-                    position, (dx, dy), patch["position"]
-                )
-                if distance < hit_distance and distance <= 20.0:
-                    hit_distance, hit_type = distance, 1
-            for patch in self._hazard_patches:
-                distance = self._ray_point_distance(
-                    position, (dx, dy), patch["position"]
-                )
-                if distance < hit_distance and distance <= 20.0:
-                    hit_distance, hit_type = distance, 2
-            for other in self._agents.values():
-                distance = self._ray_point_distance(
-                    position, (dx, dy), other["position"]
-                )
-                if distance < hit_distance and distance > 1e-6 and distance <= 20.0:
-                    hit_distance, hit_type = distance, 4
-            distances.append(float(min(hit_distance, 20.0)))
-            types.append(hit_type)
-        return distances, types
-
-    def _wall_distance(
-        self, position: tuple[float, float], dx: float, dy: float
-    ) -> float:
-        hits: list[float] = []
-        if dx > 0.0:
-            hits.append((self.width - position[0]) / dx)
-        elif dx < 0.0:
-            hits.append(-position[0] / dx)
-        if dy > 0.0:
-            hits.append((self.height - position[1]) / dy)
-        elif dy < 0.0:
-            hits.append(-position[1] / dy)
-        return min(hits)
-
-    @staticmethod
-    def _ray_point_distance(
-        origin: tuple[float, float],
-        direction: tuple[float, float],
-        point: tuple[float, float],
-    ) -> float:
-        vx, vy = point[0] - origin[0], point[1] - origin[1]
-        projection = vx * direction[0] + vy * direction[1]
-        perpendicular = abs(vx * direction[1] - vy * direction[0])
-        return projection if projection > 0.0 and perpendicular <= 0.75 else math.inf
+        return ray_sensors(
+            position,
+            heading,
+            self.width,
+            self.height,
+            tuple(patch["position"] for patch in self._food_patches),
+            tuple(patch["position"] for patch in self._hazard_patches),
+            tuple(state["position"] for state in self._agents.values()),
+            count,
+        )
 
     def snapshot(self) -> Snapshot:
         food = tuple(
@@ -367,8 +358,8 @@ class World:
 
     def _clamp_point(self, point: tuple[float, float]) -> tuple[float, float]:
         return (
-            float(np.clip(point[0], 0.0, self.width)),
-            float(np.clip(point[1], 0.0, self.height)),
+            float(min(max(point[0], 0.0), self.width)),
+            float(min(max(point[1], 0.0), self.height)),
         )
 
     def get_agent(self, agent_id: str) -> dict[str, Any] | None:

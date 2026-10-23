@@ -217,8 +217,11 @@ class WorldView(QWidget):
                     painter.setPen(
                         QPen(QColor(theme.TRAIL_COLOR), theme.TRAIL_WIDTH / scale)
                     )
+                    rendered_trail = trail[:: theme.TRAIL_RENDER_STRIDE]
+                    if rendered_trail[-1] != trail[-1]:
+                        rendered_trail = [*rendered_trail, trail[-1]]
                     painter.drawPolyline(
-                        QPolygonF([QPointF(*point) for point in trail])
+                        QPolygonF([QPointF(*point) for point in rendered_trail])
                     )
             if state.agent_id == self._selected_agent and self._frame is not None:
                 detail = self._frame.agents.get(state.agent_id)

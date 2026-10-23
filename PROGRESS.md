@@ -259,3 +259,23 @@ fresh_clone_cli_bench=agents=20 steps=1000 steps_per_second=291.5
 ```
 
 Offscreen screenshot review: panel and control styling is consistent; this Qt runtime exposes no font families, so its screenshot renders text as missing-glyph boxes. This environment limitation does not establish how text renders in the user's interactive Windows session.
+
+## Verification pass — Phase 5 replay and GUI throughput
+
+- Added root `AGENTS.md` with the workspace boundaries and implementation gates; committed separately as `Add AGENTS.md` (`c1d2044`).
+- Confirmed Phase 5 replay coverage: `tests/test_phase5.py::test_scrub_back_500_steps_and_replay_matches_original_future` stores 700 action/result hashes, restores the step-200 checkpoint, replays the final 500 recorded actions, and asserts every resulting hash. `tests/test_hardening.py::test_snapshot_disk_round_trip_replays_future` saves NPZ+JSON, restores a fresh World, checks the starting hash, and checks 200 subsequent hashes.
+- Throughput work batches Max stepping, omits per-step observation/snapshot construction, publishes the newest immutable frame for GUI-timer polling, stores timeline checkpoints every 25 steps, batches heuristic food-location preparation, and yields once per 32-step Max batch. Simulation action/state rules are unchanged. Diagnostic and measurement scripts: `scripts/verification_episodes.py` and `scripts/verification_throughput.py`.
+- Throughput measurement used 20 agents, all overlays on, `agent_0` selected, 3-second samples (0.5-second Max sample), and p95 timer-frame intervals:
+
+```text
+agents=20 overlays=all selected=agent_0 speed=1x render_fps=59.1 sim_steps_per_second=10.0 p95_frame_time_ms=23.43
+agents=20 overlays=all selected=agent_0 speed=10x render_fps=58.3 sim_steps_per_second=100.3 p95_frame_time_ms=22.53
+agents=20 overlays=all selected=agent_0 speed=Max render_fps=21.7 sim_steps_per_second=1512.3 p95_frame_time_ms=63.36
+```
+
+  Before optimization, the same script measured Max at 96.3 steps/s, 0.6 FPS, and 1817.49 ms p95. The uninstrumented final Max sample clears 1500 steps/s; the UI remains less responsive in Max than at capped speeds.
+- Instrumented final profile: 1540.7 steps/s, 15.4 FPS, 71.45 ms p95; 135 snapshots cost 25.4 ms total, 67 scheduler yields cost 5.2 ms, worker CPU fraction was 0.810, 441.5 ms was in action generation, 451.5 ms in Runner stepping, and 334.3 ms across 62 paint events. Instrumentation reduces throughput and is not the primary reported rate.
+- Episode diagnostics used the default 50x50 configuration, one agent, seeds 1-20, and the 100000-step Runner cap. Raw per-seed rows were printed by `scripts/verification_episodes.py`: heuristic episodes ended by starvation after 3766-4959 steps and ate 79-490 patches; random episodes ended by hazard damage after 423-3081 steps and ate none. No run reached the cap. For comparison on a 100-unit square, detection radius 30 is 30% of the side (60% diameter), and contact radius 1.5 is 1.5% of the side (3% diameter). The configured default arena is 50x50, so those radii are 60% and 3% of its side respectively.
+- `python -m simlab.cli bench --agents 20`: final rerun printed `agents=20 steps=1000 steps_per_second=1073.7` (a prior run printed 1119.3).
+- Full `.venv` test run: 33 passed. Ruff check and format check both pass. `where.exe python` listed `.venv` first and `sys.prefix` was `C:\AI\SimulationCode\.venv`.
+- Real-window inspection could not be completed: the desktop automation inventory exposed no application/native window, including after starting the CLI GUI. The offscreen Qt smoke test passed, but the real interactive rendering has not been visually verified in this session.

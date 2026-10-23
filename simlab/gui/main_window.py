@@ -158,7 +158,7 @@ class MainWindow(QMainWindow):
         if self._snapshot_history:
             self.drive_plot.set_timeline_range(
                 next(iter(self._snapshot_history)),
-                next(reversed(self._snapshot_history)),
+                self.worker.latest_snapshot.step,
                 self.worker.latest_snapshot.step,
             )
 
@@ -193,7 +193,12 @@ class MainWindow(QMainWindow):
     def _seek_timeline(self, step: int) -> None:
         if not self._snapshot_history:
             return
-        snapshot_step = min(self._snapshot_history, key=lambda value: abs(value - step))
+        eligible_steps = [
+            snapshot_step
+            for snapshot_step in self._snapshot_history
+            if snapshot_step <= step
+        ]
+        snapshot_step = max(eligible_steps, default=min(self._snapshot_history))
         snapshot = self._snapshot_history[snapshot_step]
         frame = self._frame_history.get(snapshot_step)
         if frame is None:
@@ -201,7 +206,7 @@ class MainWindow(QMainWindow):
         self.world_view.set_frame(frame)
         self.inspector.set_agent(frame, self._selected_agent)
         self.toolbar.set_playing(False)
-        self.worker.request_restore(frame)
+        self.worker.request_seek(frame, step)
 
     def _save_snapshot(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -243,7 +248,9 @@ class MainWindow(QMainWindow):
             self.world_view._snapshot is None
             or self.world_view._snapshot.step != snapshot.step
         ):
-            self.world_view.set_frame(frame)
+            self._accept_frame(frame)
+        self._step = snapshot.step
+        self._seed = self.worker.seed
         self._render_frames += 1
         now = time.perf_counter()
         elapsed = now - self._last_fps_time

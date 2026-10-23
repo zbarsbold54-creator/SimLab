@@ -63,6 +63,9 @@ class SimWorker(QObject, WorkerControls):
         last_metrics = previous
         window_steps = 0
         step_credit = 0.0
+        seek_target: int | None = None
+        latest_actions = {}
+        latest_details = self._latest_frame.agents
         self.snapshotReady.emit(self.latest_snapshot)
         self.frameReady.emit(self.latest_frame)
         self.historyReady.emit(self._history.take_batch())
@@ -78,6 +81,8 @@ class SimWorker(QObject, WorkerControls):
                 self._requested_seed = None
                 requested_snapshot = self._requested_snapshot
                 self._requested_snapshot = None
+                requested_seek_step = self._requested_seek_step
+                self._requested_seek_step = None
                 requested_scenario = self._requested_scenario
                 self._requested_scenario = None
                 requested_replay = self._requested_replay
@@ -88,6 +93,7 @@ class SimWorker(QObject, WorkerControls):
                 self._step_budget = 0
 
             if requested_scenario is not None:
+                seek_target = None
                 requested_seed, self._config = requested_scenario
                 self._agent_count = max(1, int(self._config.agent.count))
                 with self._lock:
@@ -103,6 +109,13 @@ class SimWorker(QObject, WorkerControls):
                         self._agent_count,
                         self._runner._world._rng,
                     )
+                    self._latest_frame = SimulationFrame(
+                        self._latest_snapshot,
+                        MappingProxyType({}),
+                        self._components.drive_names,
+                    )
+                    latest_details = self._latest_frame.agents
+                    latest_actions = {}
                     self._history.reset(self._latest_snapshot)
                     step_credit = 0.0
                     window_steps = 0
@@ -110,6 +123,7 @@ class SimWorker(QObject, WorkerControls):
                 self.frameReady.emit(self.latest_frame)
                 self.historyReady.emit(self._history.take_batch())
             elif requested_seed is not None:
+                seek_target = None
                 with self._lock:
                     self._seed = requested_seed
                     self._runner = Runner(
@@ -123,6 +137,13 @@ class SimWorker(QObject, WorkerControls):
                         self._agent_count,
                         self._runner._world._rng,
                     )
+                    self._latest_frame = SimulationFrame(
+                        self._latest_snapshot,
+                        MappingProxyType({}),
+                        self._components.drive_names,
+                    )
+                    latest_details = self._latest_frame.agents
+                    latest_actions = {}
                     self._history.reset(self._latest_snapshot)
                     step_credit = 0.0
                     window_steps = 0
@@ -173,10 +194,13 @@ class SimWorker(QObject, WorkerControls):
                             self._components.drive_names,
                         )
                     )
+                    latest_details = self._latest_frame.agents
+                    latest_actions = {}
                     if not preserve_log:
                         self._runner._snapshot_manager.add(snapshot)
                     if preserve_log:
                         self._history.add_snapshot(snapshot)
+                    seek_target = requested_seek_step
                 self.snapshotReady.emit(snapshot)
                 self.frameReady.emit(self._latest_frame)
                 if not preserve_log:
@@ -196,12 +220,18 @@ class SimWorker(QObject, WorkerControls):
                         continue
             else:
                 steps_to_run = 0
-                if step_budget == 0:
+                if step_budget == 0 and seek_target is None:
                     self._wake.wait(0.05)
                     self._wake.clear()
                     continue
 
+            if seek_target is not None:
+                steps_to_run = min(
+                    theme.MAX_BATCH_STEPS,
+                    max(0, seek_target - self._runner._step_count),
+                )
             steps_to_run += step_budget
+            checkpoint_snapshot = None
             for _ in range(steps_to_run):
                 with self._lock:
                     if self._stopping:
@@ -209,36 +239,59 @@ class SimWorker(QObject, WorkerControls):
                     world = self._runner._world
                     action_step = self._runner._step_count
                     actions = self._history.action_for(action_step)
-                    if actions is None:
-                        actions, details = self._components.actions_for(
-                            world, action_step
-                        )
-                    else:
-                        details = MappingProxyType(
-                            {
-                                agent_id: AgentFrame(action, None, ())
-                                for agent_id, action in actions.items()
-                            }
-                        )
-                    self._history.record(action_step, actions)
-                    result = self._runner.run_step(actions)
-                    self._latest_snapshot = result.snapshot
-                    self._history.add_snapshot(result.snapshot)
-                    self._latest_frame = SimulationFrame(
-                        result.snapshot,
-                        details,
-                        self._components.drive_names,
+                if actions is None:
+                    actions, details = self._components.actions_for(world, action_step)
+                else:
+                    details = MappingProxyType(
+                        {
+                            agent_id: AgentFrame(action, None, ())
+                            for agent_id, action in actions.items()
+                        }
                     )
+                with self._lock:
+                    self._history.record(action_step, actions)
+                result = self._runner.run_step(
+                    actions,
+                    include_observations=False,
+                    include_snapshot=False,
+                    include_agent_states=False,
+                )
+                latest_actions = actions
+                latest_details = details
                 window_steps += 1
+                if self._runner._step_count % theme.HISTORY_SNAPSHOT_INTERVAL == 0:
+                    checkpoint_snapshot = world.snapshot()
+                    with self._lock:
+                        self._history.add_snapshot(checkpoint_snapshot)
                 if result.terminated:
+                    seek_target = None
                     with self._lock:
                         self._playing = False
                     break
+                if seek_target is not None and self._runner._step_count >= seek_target:
+                    seek_target = None
+                    break
 
             now = time.perf_counter()
-            if now - last_publish >= theme.SNAPSHOT_EMIT_INTERVAL_S:
-                self.snapshotReady.emit(self.latest_snapshot)
-                self.frameReady.emit(self.latest_frame)
+            publish_now = now - last_publish >= theme.SNAPSHOT_EMIT_INTERVAL_S
+            if publish_now or (not playing and window_steps > 0):
+                snapshot = checkpoint_snapshot
+                if snapshot is None or snapshot.step != self._runner._step_count:
+                    snapshot = self._runner._world.snapshot()
+                frame = SimulationFrame(
+                    snapshot,
+                    (
+                        self._components.frame_details(
+                            self._runner._world, latest_actions
+                        )
+                        if self._components.defer_display_observations
+                        else latest_details
+                    ),
+                    self._components.drive_names,
+                )
+                with self._lock:
+                    self._latest_snapshot = snapshot
+                    self._latest_frame = frame
                 if self._history.pending:
                     self.historyReady.emit(self._history.take_batch())
                 last_publish = now
@@ -255,7 +308,6 @@ class SimWorker(QObject, WorkerControls):
                 )
                 window_steps = 0
                 last_metrics = now
-            if speed == "Max":
+            if playing and speed == "Max":
                 time.sleep(theme.MAX_BATCH_YIELD_S)
-
         self.stopped.emit()

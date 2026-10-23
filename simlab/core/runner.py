@@ -100,7 +100,14 @@ class Runner:
             return Action(float(max(-1.0, min(1.0, delta))), 0.8, True)
         return Action(0.25, 0.5, False)
 
-    def run_step(self, agent_actions: dict[str, Action] | None = None) -> StepResult:
+    def run_step(
+        self,
+        agent_actions: dict[str, Action] | None = None,
+        *,
+        include_observations: bool = True,
+        include_snapshot: bool = True,
+        include_agent_states: bool = True,
+    ) -> StepResult:
         if not self._is_running:
             raise RuntimeError("Runner is not running. Call setup() first.")
         actions = (
@@ -109,13 +116,19 @@ class Runner:
             else {aid: self._default_action(aid) for aid in self._world._agents}
         )
         action_index = self._step_count
-        result = self._world.step(actions)
+        result = self._world.step(
+            actions,
+            include_observations=include_observations,
+            include_snapshot=include_snapshot,
+            include_agent_states=include_agent_states,
+        )
         self._step_count = self._world.get_step_count()
         if action_index < len(self.action_log):
             self.action_log[action_index] = actions
         else:
             self.action_log.append(actions)
-        self._snapshot_manager.add(result.snapshot)
+        if result.snapshot is not None:
+            self._snapshot_manager.add(result.snapshot)
         return result
 
     def run_episode(
