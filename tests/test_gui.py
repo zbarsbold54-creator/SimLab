@@ -207,7 +207,8 @@ def test_phase4_scenario_applies_and_resets_using_current_seed() -> None:
     window.show()
     window.scenario.agent_count.setValue(4)
     window.scenario.hazard_count.setValue(2)
-    window.scenario.food_regrowth.setValue(17)
+    window.scenario.food_density.setValue(17)
+    window.scenario.food_regrow_rate.setValue(5)
     window.scenario.apply()
     deadline = time.monotonic() + 3.0
     while (
@@ -222,6 +223,7 @@ def test_phase4_scenario_applies_and_resets_using_current_seed() -> None:
     assert len(snapshot.hazard_patches) == 2
     assert window.worker.seed == 29
     assert window._config.food.spawn_rate == 0.17
+    assert window._config.food.regrow_rate == 0.05
     window.close()
     app.processEvents()
 

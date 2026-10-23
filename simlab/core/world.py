@@ -33,6 +33,7 @@ class World:
         height: float = 100.0,
         seed: int = 0,
         dt: float = 0.1,
+        food_regrow_rate: float = 0.0,
     ) -> None:
         self.width = float(width)
         self.height = float(height)
@@ -44,6 +45,7 @@ class World:
         self._hazard_patches: list[dict[str, Any]] = []
         self._metadata: dict[str, Any] = {}
         self._step_count = 0
+        self.food_regrow_rate = float(food_regrow_rate)
 
     @property
     def agents(self) -> MappingProxyType:
@@ -93,12 +95,21 @@ class World:
         self._agents.pop(agent_id, None)
 
     def add_food(
-        self, position: tuple[float, float], count: int = 1, amount: float = 20.0
+        self,
+        position: tuple[float, float],
+        count: int = 1,
+        amount: float = 20.0,
+        max_amount: float | None = None,
     ) -> None:
         point = self._clamp_point(position)
+        capacity = float(max(0.0, amount if max_amount is None else max_amount))
         for _ in range(max(0, int(count))):
             self._food_patches.append(
-                {"position": point, "amount": float(max(0.0, amount))}
+                {
+                    "position": point,
+                    "amount": float(max(0.0, amount)),
+                    "max_amount": capacity,
+                }
             )
 
     def add_hazard(
@@ -151,6 +162,7 @@ class World:
         states = self._state_view() if include_agent_states else {}
         observations = self._observation_batch() if include_observations else {}
         snapshot = self.snapshot() if include_snapshot else None
+        self._regrow_food()
         terminated = not any(state["is_alive"] for state in self._agents.values())
         return StepResult(
             MappingProxyType(states),
@@ -160,6 +172,15 @@ class World:
             reward=MappingProxyType(rewards),
             info=MappingProxyType({"step": self._step_count}),
         )
+
+    def _regrow_food(self) -> None:
+        rate = self.food_regrow_rate
+        if rate <= 0.0:
+            return
+        for patch in self._food_patches:
+            max_amount = patch.get("max_amount", patch["amount"])
+            if patch["amount"] < max_amount:
+                patch["amount"] = min(max_amount, patch["amount"] + rate)
 
     def _move_agent(self, state: dict[str, Any], action: Action) -> None:
         state["heading"] = (state["heading"] + action.turn * 3.0 * self.dt) % (
@@ -319,7 +340,13 @@ class World:
             self.width,
             self.height,
             self.dt,
-            MappingProxyType({"seed": self._seed, **copy.deepcopy(self._metadata)}),
+            MappingProxyType(
+                {
+                    "seed": self._seed,
+                    "food_regrow_rate": self.food_regrow_rate,
+                    **copy.deepcopy(self._metadata),
+                }
+            ),
         )
 
     def restore(self, snapshot: Snapshot) -> None:
@@ -343,10 +370,11 @@ class World:
         }
         self._rng = SimRNG(0)
         self._rng.state = thaw(snapshot.rng_state)
+        self.food_regrow_rate = float(snapshot.metadata.get("food_regrow_rate", 0.0))
         self._metadata = {
             key: thaw(value)
             for key, value in snapshot.metadata.items()
-            if key != "seed"
+            if key not in ("seed", "food_regrow_rate")
         }
 
     def state_hash(self) -> str:

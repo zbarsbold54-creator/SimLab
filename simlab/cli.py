@@ -57,10 +57,9 @@ def run_benchmark(steps: int, agents: int = 1) -> int:
     runner = Runner(load_config(), 42, agents=agents)
     runner.setup()
     runner.run_bench(steps)
-    print(
-        f"agents={agents} steps={steps} "
-        f"steps_per_second={runner.last_bench_steps_per_second:.1f}"
-    )
+    print(f"agents={agents} steps={steps}")
+    print(f"world_only_steps_per_second={runner.last_bench_world_steps_per_second:.1f}")
+    print(f"full_pipeline_steps_per_second={runner.last_bench_steps_per_second:.1f}")
     return 0
 
 

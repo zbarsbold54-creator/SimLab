@@ -98,7 +98,6 @@ class SimWorker(QObject, WorkerControls):
         window_steps = 0
         step_credit = 0.0
         seek_target: int | None = None
-        latest_actions = {}
         latest_details = self._latest_frame.agents
         self.snapshotReady.emit(self.latest_snapshot)
         self.frameReady.emit(self.latest_frame)
@@ -149,7 +148,6 @@ class SimWorker(QObject, WorkerControls):
                         self._components.drive_names,
                     )
                     latest_details = self._latest_frame.agents
-                    latest_actions = {}
                     self._history.reset(self._latest_snapshot)
                     step_credit = 0.0
                     window_steps = 0
@@ -177,14 +175,12 @@ class SimWorker(QObject, WorkerControls):
                         self._components.drive_names,
                     )
                     latest_details = self._latest_frame.agents
-                    latest_actions = {}
                     self._history.reset(self._latest_snapshot)
                     step_credit = 0.0
                     window_steps = 0
                 self.snapshotReady.emit(self.latest_snapshot)
                 self.frameReady.emit(self.latest_frame)
                 self.historyReady.emit(self._history.take_batch())
-
             if requested_replay:
                 with self._lock:
                     recorded_steps = sorted(self._history.actions)
@@ -229,7 +225,6 @@ class SimWorker(QObject, WorkerControls):
                         )
                     )
                     latest_details = self._latest_frame.agents
-                    latest_actions = {}
                     if not preserve_log:
                         self._runner._snapshot_manager.add(snapshot)
                     if preserve_log:
@@ -270,8 +265,7 @@ class SimWorker(QObject, WorkerControls):
                 advanced = self._advance_one_step()
                 if advanced is None:
                     break
-                actions, details, result, checkpoint_snapshot = advanced
-                latest_actions = actions
+                _actions, details, result, checkpoint_snapshot = advanced
                 latest_details = details
                 window_steps += 1
                 if result.terminated:
@@ -290,15 +284,7 @@ class SimWorker(QObject, WorkerControls):
                 if snapshot is None or snapshot.step != self._runner._step_count:
                     snapshot = self._runner._world.snapshot()
                 frame = SimulationFrame(
-                    snapshot,
-                    (
-                        self._components.frame_details(
-                            self._runner._world, latest_actions
-                        )
-                        if self._components.defer_display_observations
-                        else latest_details
-                    ),
-                    self._components.drive_names,
+                    snapshot, latest_details, self._components.drive_names
                 )
                 with self._lock:
                     self._latest_snapshot = snapshot

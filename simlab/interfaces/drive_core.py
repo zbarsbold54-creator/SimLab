@@ -16,6 +16,7 @@ class RetentionRule(Protocol):
 
 class DriveCore(Protocol):
     names: tuple[str, ...]
+    needs_observations: bool
 
     def reset(self, n_agents: int, rng: Any) -> None: ...
 
@@ -55,6 +56,7 @@ class BasicDriveCore:
         "arousal",
         "homeostatic_deviation",
     )
+    needs_observations = True
 
     def __init__(self, retention: RetentionRule | None = None) -> None:
         self.retention = retention or FixedDecay()

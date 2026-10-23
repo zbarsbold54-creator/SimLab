@@ -44,6 +44,7 @@ class FoodConfig:
 
     spawn_rate: float = 0.1
     max_food: int = 20
+    regrow_rate: float = 0.0
 
 
 @dataclass
@@ -118,6 +119,7 @@ class SimLabConfig:
             food=FoodConfig(
                 spawn_rate=food_data.get("spawn_rate", 0.1),
                 max_food=food_data.get("max_food", 20),
+                regrow_rate=food_data.get("regrow_rate", 0.0),
             ),
             drive=components.get("drive", "simple"),
             retention=components.get("retention", "fixed_decay"),
@@ -150,6 +152,7 @@ class SimLabConfig:
             "food": {
                 "spawn_rate": self.food.spawn_rate,
                 "max_food": self.food.max_food,
+                "regrow_rate": self.food.regrow_rate,
             },
             "components": {
                 "drive": self.drive,

@@ -8,6 +8,8 @@ from collections.abc import Callable
 from typing import Any
 
 from simlab.core.config import SimLabConfig, load_config
+from simlab.core.pipeline import compute_actions
+from simlab.core.registry import get, load_plugins
 from simlab.core.snapshot import ActionLog, SnapshotManager
 from simlab.core.types import Action, AgentState, Snapshot, StepResult
 from simlab.core.world import World
@@ -25,7 +27,10 @@ class Runner:
         self._seed = self._config.world.seed if seed is None else seed
         self._agent_count = max(1, int(agents))
         self._world = World(
-            self._config.world.width, self._config.world.height, self._seed
+            self._config.world.width,
+            self._config.world.height,
+            self._seed,
+            food_regrow_rate=self._config.food.regrow_rate,
         )
         self._step_count = 0
         self._max_steps = 100000
@@ -33,6 +38,9 @@ class Runner:
         self._snapshot_manager = SnapshotManager()
         self._snapshots: dict[int, Snapshot] = self._snapshot_manager._snapshots
         self.action_log: list[dict[str, Action]] = []
+        self._policy = None
+        self._drive_core = None
+        self._components_loaded = False
 
     def setup(self) -> None:
         self._world.reset(self._seed)
@@ -84,9 +92,10 @@ class Runner:
         state = self._world.get_agent(aid)
         if state is None or not state["is_alive"]:
             return Action()
-        if self._world._food_patches:
+        patches = [p for p in self._world._food_patches if p["amount"] > 0.0]
+        if patches:
             target = min(
-                self._world._food_patches,
+                patches,
                 key=lambda patch: (
                     (patch["position"][0] - state["position"][0]) ** 2
                     + (patch["position"][1] - state["position"][1]) ** 2
@@ -100,6 +109,31 @@ class Runner:
             return Action(float(max(-1.0, min(1.0, delta))), 0.8, True)
         return Action(0.25, 0.5, False)
 
+    def _ensure_components(self) -> bool:
+        """Lazily load the registered policy and drive core from the config."""
+        if self._components_loaded:
+            return self._policy is not None or self._drive_core is not None
+        self._components_loaded = True
+        load_plugins()
+        policy_type = get("policy", self._config.policy)
+        if policy_type is not None:
+            try:
+                self._policy = policy_type(seed=self._seed)
+            except TypeError:
+                self._policy = policy_type()
+        drive_type = get("drive", self._config.drive)
+        if drive_type is not None:
+            self._drive_core = drive_type()
+            self._drive_core.reset(self._agent_count, self._world._rng)
+        return self._policy is not None or self._drive_core is not None
+
+    def _component_actions(self) -> dict[str, Action]:
+        self._ensure_components()
+        actions, _, _ = compute_actions(
+            self._world, self._policy, self._drive_core, self._step_count
+        )
+        return actions
+
     def run_step(
         self,
         agent_actions: dict[str, Action] | None = None,
@@ -110,11 +144,14 @@ class Runner:
     ) -> StepResult:
         if not self._is_running:
             raise RuntimeError("Runner is not running. Call setup() first.")
-        actions = (
-            dict(agent_actions)
-            if agent_actions
-            else {aid: self._default_action(aid) for aid in self._world._agents}
-        )
+        if agent_actions is not None:
+            actions = dict(agent_actions)
+        elif self._ensure_components():
+            actions = self._component_actions()
+        else:
+            actions = {
+                aid: self._default_action(aid) for aid in self._world._agents
+            }
         action_index = self._step_count
         result = self._world.step(
             actions,
@@ -154,6 +191,12 @@ class Runner:
         return results
 
     def run_bench(self, num_steps: int) -> list[StepResult]:
+        """Benchmark both world-only and full-pipeline step throughput."""
+        self.run_bench_world_only(num_steps)
+        return self.run_bench_full(num_steps)
+
+    def run_bench_full(self, num_steps: int) -> list[StepResult]:
+        """Full pipeline: sensing + registered DriveCore + registered Policy each step."""
         started = time.perf_counter()
         results = [
             self.run_step(
@@ -167,6 +210,21 @@ class Runner:
             time.perf_counter() - started, 1e-9
         )
         return results
+
+    def run_bench_world_only(self, num_steps: int) -> None:
+        """World stepping only: no sensing, drives, policies or snapshots."""
+        actions = {aid: Action(0.0, 0.5, False) for aid in self._world._agents}
+        started = time.perf_counter()
+        for _ in range(num_steps):
+            self._world.step(
+                dict(actions),
+                include_observations=False,
+                include_snapshot=False,
+                include_agent_states=False,
+            )
+        self.last_bench_world_steps_per_second = num_steps / max(
+            time.perf_counter() - started, 1e-9
+        )
 
     def snapshot(self) -> Snapshot | None:
         return self._world.snapshot() if self._is_running else None

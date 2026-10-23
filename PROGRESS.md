@@ -310,3 +310,67 @@ energy_budget seed=1 survival=3767 starting_energy=100 heuristic_speed=6.4 drain
 ```
 
 - Every five-agent cell had 0% heuristic cap survivors. With finite food and positive drain, indefinite survival is impossible in the current implementation; no parameter recommendation can meet the requested indefinite-survival condition without a real regrowth mechanism. Conditional candidates after a regrowth rate is defined are detection radius 12 or 16; hazard deaths were 10-13% in those cells. A moving heuristic agent needs about 0.0336 energy per step, or 0.168 per step for five agents before accounting for food availability. No default was changed.
+
+## Heuristic and fast-path fixes (tasks 1-6)
+
+### 1. Starvation anomaly (fixed)
+
+Root cause: target selection (both `Runner._default_action` and the old world-state heuristic) picked the nearest FoodPatch even when its `amount` was 0.0, so an agent orbited a depleted patch forever and starved with ~380/400 food still present. Fixed by filtering patches with `amount > 0.0` in `Runner._default_action` and in the sensor heuristic. Before (one agent, seeds 1-5): deaths at 3771-4366 with 20-40 food units eaten. After: seeds 1,2,3,5 eat all 400 units and survive to ~16266; seed 4 dies at 7902 by hazard (158.8 eaten).
+
+### 2. Sensor-based heuristic (done)
+
+`HeuristicPolicy` now uses only `obs` (rays + ray_types + proprioception) via `Policy.act`; it no longer touches World state and no longer implements `select_action`. World-state version preserved as `OracleHeuristicPolicy`, registered as `oracle_heuristic`. Survival report over 10 seeds x 5 agents (defaults, step cap 50000):
+- sensor heuristic: median 6421, spread 4504-7567, all hazard deaths
+- oracle heuristic: median 4100, spread 3472-5554
+- random: median 4270, spread 3562-4346
+
+### 3. Fast-path correctness (done)
+
+Added `needs_observations` to the `Policy` and `DriveCore` protocols (default True); `pipeline.needs_observations()` computes the combined flag. `tests/test_fast_path_plugins.py` registers a recurrent `RecurrentTestDriveCore` (FixedDecay retention) and a `StatefulTestPolicy` that reads obs + drive_state and keeps internal state; it asserts GUI Max path (`_advance_one_step`) and headless Runner give identical per-step world hashes, identical drive-state arrays, and identical policy internal state over 1000 steps x 20 agents (passes). It also shows that skipping a drive step (a broken fast path) diverges the world state.
+
+### 4. Bench (done)
+
+`python -m simlab.cli bench --agents 20 --steps 1000` now prints both numbers:
+- world_only_steps_per_second=5817.9
+- full_pipeline_steps_per_second=829.6
+
+### 5. Food regrowth (done)
+
+Each FoodPatch now carries `max_amount` and regrows by `food.regrow_rate` units/step up to it. Added `regrow_rate=0.0` to TOML (default unchanged behavior), included in the state hash (snapshot metadata), and covered by `tests/test_food_regrowth.py` (determinism, cap, hash participation, snapshot/restore preservation). Scenario dock: the old "Food regrowth" slider actually controlled initial patch density (`spawn_rate`); I relabeled it "Food density (initial patches)" and added a real "Food regrowth" slider wired to `regrow_rate`. Added the "Harsh (original)" preset that loads `configs/harsh_original.toml`.
+
+### 6. World sweep (report only)
+
+`scripts/world_sweep_regrowth.py`, 5 agents, 5 seeds (reduced from 10 to stay under the runtime budget), cap 10000, detection radius in {12,16,30}, regrow_rate in {0.005,0.01,0.02,0.05}. Ran in 481.6s.
+
+Break-even arithmetic (5 moving agents): drain 0.0336/step/agent, total 0.168/step; energy per food unit 1.0 (1:1 transfer); 20 initial patches; supply-equals-drain regrow_rate = 0.168/20 = 0.00840 units/step/patch.
+
+```text
+radius regrow_rate heuristic_median heuristic_cap_pct heuristic_starve/hazard/trunc random_median random_starve/hazard/trunc
+    12      0.005              5378             12.0   22/   0/   3          3181    9/  16/   0
+    12      0.010              7739             28.0   18/   0/   7          3181    9/  16/   0
+    12      0.020              9383             48.0   13/   0/  12          3181    9/  16/   0
+    12      0.050             10000             52.0   12/   0/  13          3181    9/  16/   0
+    16      0.005              5986              8.0   23/   0/   2          2842    6/  19/   0
+    16      0.010              7681             40.0   15/   0/  10          2842    6/  19/   0
+    16      0.020             10000             52.0   12/   0/  13          2842    6/  19/   0
+    16      0.050             10000             52.0   12/   0/  13          2842    6/  19/   0
+    30      0.005              6585              4.0   23/   1/   1          3719   11/  14/   0
+    30      0.010              9222             44.0   14/   0/  11          3719   11/  14/   0
+    30      0.020             10000             60.0   10/   0/  15          3719   11/  14/   0
+    30      0.050             10000             60.0   10/   0/  15          3719   11/  14/   0
+```
+
+Conclusion: sensors alone (random) never reach the cap and mostly die to hazards; the heuristic's survival scales strongly with regrow_rate. Agents do compete for food (shared finite patches; food is the limiting resource). Recommended parameter sets:
+- detection_radius=16, regrow_rate=0.02: heuristic median hits the 10000 cap, 52% of agents reach it, starvation split reduced to 12/25.
+- detection_radius=30, regrow_rate=0.02 (or 0.05): highest cap rate (60%).
+
+Defaults unchanged; no `default.toml` modification.
+
+### Verified
+- Full suite: `40 passed` (was 34 before this work). Ruff clean.
+- Bench numbers above; sweep table above.
+
+### Open
+- Awaiting your choice on adopting a recommended parameter set (detection radius / regrow rate) into a config or named preset.
+- Random policy and oracle/sensor comparisons are report-only; no default changes made.
+- Whether to keep `scripts/world_sweep_regrowth.py` as a long-term tool.

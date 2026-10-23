@@ -5,10 +5,10 @@ from __future__ import annotations
 from types import MappingProxyType
 
 from simlab.core.config import SimLabConfig
+from simlab.core.pipeline import compute_actions, needs_observations
 from simlab.core.registry import get, load_plugins
-from simlab.core.types import Action, Observation
+from simlab.core.types import Action
 from simlab.gui.frame import AgentFrame
-from simlab.interfaces.policy import HeuristicPolicy
 
 
 class WorkerComponents:
@@ -42,58 +42,13 @@ class WorkerComponents:
         self.agent_count = agent_count
         self.reset(rng)
 
-    @property
-    def defer_display_observations(self) -> bool:
-        return isinstance(self.policy, HeuristicPolicy)
+    def needs_observations(self) -> bool:
+        return needs_observations(self.policy, self.drive_core)
 
     def actions_for(self, world, step: int) -> tuple[dict[str, Action], object]:
-        if isinstance(self.policy, HeuristicPolicy):
-            actions = {}
-            food_locations = [patch["position"] for patch in world._food_patches]
-            world_state = {"food_locations": food_locations}
-            for agent_id, state in world._agents.items():
-                if state["is_alive"]:
-                    actions[agent_id] = self.policy.select_action(
-                        state, world_state, [], step
-                    )
-            details = MappingProxyType(
-                {
-                    agent_id: AgentFrame(action, None, ())
-                    for agent_id, action in actions.items()
-                }
-            )
-            return actions, details
-
-        observations: dict[str, Observation] = world._observation_batch()
-        live_ids = [
-            agent_id for agent_id, state in world._agents.items() if state["is_alive"]
-        ]
-        live_observations = [observations[agent_id] for agent_id in live_ids]
-        values = (
-            self.drive_core.step(live_observations, {"rng": world._rng})
-            if self.drive_core is not None
-            else []
+        actions, drives, observations = compute_actions(
+            world, self.policy, self.drive_core, step
         )
-        drives = {
-            agent_id: tuple(float(value) for value in values[index])
-            for index, agent_id in enumerate(live_ids)
-        }
-        actions: dict[str, Action] = {}
-        for agent_id in live_ids:
-            drive = drives.get(agent_id, ())
-            if hasattr(self.policy, "select_action"):
-                state = world._agents[agent_id]
-                action = self.policy.select_action(
-                    state,
-                    {"food_locations": [p["position"] for p in world._food_patches]},
-                    [],
-                    step,
-                )
-            elif self.policy is not None:
-                action = self.policy.act(observations[agent_id], drive)
-            else:
-                action = Action()
-            actions[agent_id] = action
         details = MappingProxyType(
             {
                 agent_id: AgentFrame(
@@ -105,31 +60,3 @@ class WorkerComponents:
             }
         )
         return actions, details
-
-    def frame_details(self, world, actions: dict[str, Action]):
-        observations = world._observation_batch()
-        live_ids = [
-            agent_id for agent_id, state in world._agents.items() if state["is_alive"]
-        ]
-        values = (
-            self.drive_core.step(
-                [observations[agent_id] for agent_id in live_ids],
-                {"rng": world._rng},
-            )
-            if self.drive_core is not None
-            else []
-        )
-        drives = {
-            agent_id: tuple(float(value) for value in values[index])
-            for index, agent_id in enumerate(live_ids)
-        }
-        return MappingProxyType(
-            {
-                agent_id: AgentFrame(
-                    actions.get(agent_id),
-                    observations[agent_id],
-                    drives.get(agent_id, ()),
-                )
-                for agent_id in observations
-            }
-        )

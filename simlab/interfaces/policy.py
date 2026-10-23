@@ -2,41 +2,54 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any, Protocol
 
 from simlab.core.types import Action
 
 
 class Policy(Protocol):
+    needs_observations: bool
+
     def act(self, obs: Any, drive_state: Any = None) -> Action: ...
 
 
 class HeuristicPolicy:
-    def act(self, obs: Any, drive_state: Any = None) -> Action:
-        return Action(0.0, 0.8, True)
+    """Sensor-based heuristic: uses only obs (rays + proprioception), no World access."""
 
-    def select_action(
-        self,
-        agent_state: dict[str, Any],
-        world_state: dict[str, Any],
-        available_actions: list[Any],
-        step: int,
-    ) -> Action:
-        position = agent_state.get("position", (0.0, 0.0))
-        food = world_state.get("food_locations", [])
-        if not food:
+    needs_observations = True
+
+    def act(self, obs: Any, drive_state: Any = None) -> Action:
+        if obs is None:
             return Action(0.25, 0.5, False)
-        target = min(
-            food, key=lambda p: (p[0] - position[0]) ** 2 + (p[1] - position[1]) ** 2
+        rays = getattr(obs, "rays", ())
+        ray_types = getattr(obs, "ray_types", ())
+
+        # Find the nearest food ray (type code 1).
+        best_dist = None
+        best_index = None
+        for index, (distance, kind) in enumerate(zip(rays, ray_types)):
+            if kind == 1 and (best_dist is None or distance < best_dist):
+                best_dist = distance
+                best_index = index
+
+        if best_dist is None:
+            # No food visible: wander forward.
+            return Action(0.25, 0.5, False)
+
+        count = len(rays)
+        middle = count // 2
+        offset_deg = (
+            (best_index - middle) * (270.0 / (count - 1)) if count > 1 else 0.0
         )
-        desired = math.atan2(target[1] - position[1], target[0] - position[0])
-        heading = agent_state.get("heading", 0.0)
-        delta = (desired - heading + math.pi) % (2 * math.pi) - math.pi
-        return Action(max(-1.0, min(1.0, delta)), 0.8, True, "heuristic")
+        turn = max(-1.0, min(1.0, offset_deg / 135.0))
+        thrust = 0.8
+        eat = best_dist < 1.5  # eat range matches World._try_eat contact radius
+        return Action(turn, thrust, eat, "heuristic")
 
 
 class RandomPolicy:
+    needs_observations = False
+
     def __init__(self, seed: int = 0) -> None:
         self._rng = __import__("numpy").random.default_rng(seed)
 
@@ -47,5 +60,7 @@ class RandomPolicy:
 
 
 class LearnedPolicy:
+    needs_observations = False
+
     def act(self, obs: Any, drive_state: Any = None) -> Action:
         return Action()

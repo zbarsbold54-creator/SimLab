@@ -36,10 +36,19 @@ class ScenarioWidget(QWidget):
         form = QFormLayout()
         self.preset = QComboBox()
         self.preset.addItems(
-            ("Custom", "Sparse food", "Abundant food", "Predator heavy")
+            (
+                "Custom",
+                "Harsh (original)",
+                "Sparse food",
+                "Abundant food",
+                "Predator heavy",
+            )
         )
         self.agent_count = self._slider(1, 20, config.agent.count)
-        self.food_regrowth = self._slider(1, 50, round(config.food.spawn_rate * 100))
+        self.food_density = self._slider(1, 50, round(config.food.spawn_rate * 100))
+        self.food_regrow_rate = self._slider(
+            0, 50, round(config.food.regrow_rate * 100)
+        )
         self.hazard_count = self._slider(0, 20, config.hazard.count)
         self.policy = QComboBox()
         self.policy.addItems(sorted(policy_names))
@@ -49,7 +58,8 @@ class ScenarioWidget(QWidget):
         self.drive.setCurrentText(config.drive)
         form.addRow("Preset", self.preset)
         form.addRow("Agents", self.agent_count)
-        form.addRow("Food regrowth", self.food_regrowth)
+        form.addRow("Food density (initial patches)", self.food_density)
+        form.addRow("Food regrowth", self.food_regrow_rate)
         form.addRow("Hazards", self.hazard_count)
         form.addRow("Policy", self.policy)
         form.addRow("DriveCore", self.drive)
@@ -75,6 +85,14 @@ class ScenarioWidget(QWidget):
         return slider
 
     def _apply_preset(self, name: str) -> None:
+        if name == "Harsh (original)":
+            from simlab.core.config import load_config
+
+            harsh = load_config("configs/harsh_original.toml")
+            self.food_density.setValue(round(harsh.food.spawn_rate * 100))
+            self.food_regrow_rate.setValue(round(harsh.food.regrow_rate * 100))
+            self.hazard_count.setValue(harsh.hazard.count)
+            return
         presets = {
             "Sparse food": (0.025, self._config.hazard.count),
             "Abundant food": (0.25, self._config.hazard.count),
@@ -82,7 +100,7 @@ class ScenarioWidget(QWidget):
         }
         if name in presets:
             rate, hazards = presets[name]
-            self.food_regrowth.setValue(round(rate * 100))
+            self.food_density.setValue(round(rate * 100))
             self.hazard_count.setValue(hazards)
 
     def apply(self) -> None:
@@ -90,7 +108,9 @@ class ScenarioWidget(QWidget):
             self._config,
             agent=replace(self._config.agent, count=self.agent_count.value()),
             food=replace(
-                self._config.food, spawn_rate=self.food_regrowth.value() / 100
+                self._config.food,
+                spawn_rate=self.food_density.value() / 100,
+                regrow_rate=self.food_regrow_rate.value() / 100,
             ),
             hazard=replace(self._config.hazard, count=self.hazard_count.value()),
             policy=self.policy.currentText(),
