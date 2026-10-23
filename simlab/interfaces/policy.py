@@ -53,8 +53,12 @@ class HeuristicPolicyNoflee:
         )
 
         if best_dist < self.EAT_DIST:
-            turn = max(-1.0, min(1.0, offset_deg / 135.0))
-            return Action(turn, 0.6, True, "heuristic")
+            # Keep the strong steering and decelerate so the minimum turning
+            # radius (v / omega_max) stays below the 1.5 eat range. The old
+            # thrust 0.6 gave v = 4.8 -> min radius 1.6 > 1.5, so the agent
+            # could orbit just outside eat range forever and never connect.
+            turn = max(-1.0, min(1.0, offset_deg / self.STEER_GAIN))
+            return Action(turn, 0.4, True, "heuristic")
         if best_dist < self.CLOSE_DIST:
             # Near food: steer harder and ease off so the agent converges
             # instead of orbiting the patch just outside eat range.

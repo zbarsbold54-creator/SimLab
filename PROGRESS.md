@@ -529,3 +529,59 @@ Written: reference scenario, results table (random / heuristic_noflee /
 heuristic / oracle at 1/5/20 agents), reproduce command per row, commit hash
 (`world-v1`), oracle policies marked "not an upper bound; kept for reference
 only", and which policies need observations.
+
+---
+
+## Round 5 - "Solo scenario diagnosis and baseline"
+
+### Step 1 - snapshot ordering fix verification (no dynamics change)
+Re-ran the 20-seed 5-agent page row (`scripts/rule_check_5agent.py`): identical
+to the pre-fix baseline (heuristic 69.0/10000/(4,27,69)/363.6/4; random
+0.0/3242/(10,90,0)), proving moving `_regrow_food` before snapshot capture
+changed the RNG draws, food amounts seen by policies/sensors, or state hashes -
+only what the snapshot records. Added
+`test_restore_with_regrowth_matches_at_multiple_scrub_points`
+(`tests/test_phase5.py`): 2 agents, seed 71, eat every 7 steps, total 800, scrub
+points (100, 300, 550), replay 200 steps. Verified it fails with the bug
+reverted and passes with the fix.
+
+### Step 2 - solo starvation diagnosis and fix
+`scripts/foraging_diag.py` (1 agent, 1 hazard, supply_ratio 2.0, radius 16,
+20 seeds, sensor heuristic with flee): 7/20 starved. Traces showed agents
+orbiting a target at ray distance ~1.45-1.67 with patch amount stuck at 20.0
+(eat never connecting), ~36% eat / 64% seek mode, food-ray hit fraction ~1.0.
+
+Root cause: the eat branch in `HeuristicPolicyNoflee._act` used thrust 0.6
+(v = 4.8, min turn radius r_min = v/omega_max = 4.8/3.0 = 1.6 > 1.5 eat range),
+so the agent could physically never get inside the true eat radius and eat never
+connected. Fix: eat branch uses thrust 0.4 and steer gain 60 (r_min = 1.067 <
+1.5). After fix: starved 7/20 -> 0/20 (13 truncation, 7 hazard). Rule check
+still passes (heuristic cap 75.0% at the [40,75] edge, random cap 0%, starved-
+with-food 0%, hazard deaths 25%): ALL PASS.
+
+### Step 3 - Solo preset and evaluation
+Added `configs/solo.toml` (1 agent, 1 hazard, else balanced/default values) and a
+"Solo" preset in the Scenario dock (`simlab/gui/scenario.py`) that loads it
+(including the agent-count slider). `scripts/solo_eval.py`, 20 seeds, cap
+10000:
+
+```text
+heuristic          cap= 60.0%  median=10000  split=(0,8,12)  food_left(mean)=379.9
+heuristic_noflee   cap= 25.0%  median=1245  split=(0,15,5)  food_left(mean)=379.8
+random             cap=  0.0%  median=4198  split=(4,16,0)  food_left(mean)=400.0
+```
+
+Solo row added to `docs/BASELINES.md` with reproduce command. `configs/default.toml`
+unchanged.
+
+### Step 4 - full suite and ruff
+Full suite: 48 passed. Ruff: all checks passed. Committed as "Solo scenario
+diagnosis and baseline", tagged `world-v1.1`.
+
+### Still open
+- 1-agent cap for heuristic with flee is 60% (a single focused hazard still
+  causes 8/20 hazard deaths); hazard.per_agent deliberately not implemented per
+  user decision.
+- The eat-branch fix (thrust 0.4 / steer gain 60) changes heuristic world
+  dynamics, raising the 5-agent cap to the upper edge (75%) of the allowed
+  window - worth monitoring in future reference runs.

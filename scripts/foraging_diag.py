@@ -111,6 +111,7 @@ def empty_metrics(aid: str) -> dict[str, Any]:
         "id": aid,
         "mode": {m: 0 for m in MODES},
         "eat_ticks": 0,
+        "wasted_eat": 0,
         "food_units": 0.0,
         "energy_in_food": 0.0,
         "energy_spent": 0.0,
@@ -118,6 +119,7 @@ def empty_metrics(aid: str) -> dict[str, Any]:
         "thrust_sum": 0.0,
         "live_steps": 0,
         "food_ray_hits": 0,
+        "food_left_at_death": None,
         "hazard_loss": 0.0,
         "starve_loss": 0.0,
         "last_drain": 0.0,
@@ -135,9 +137,15 @@ def run_seed(
     cap: int = 10000,
     flee_enabled: bool = False,
     policy: str = "heuristic_noflee",
+    hazard_count: int = 4,
 ) -> dict[str, dict[str, Any]]:
     base = load_config("configs/balanced.toml")
-    cfg = replace(base, policy=policy, agent=replace(base.agent, count=agents))
+    cfg = replace(
+        base,
+        policy=policy,
+        agent=replace(base.agent, count=agents),
+        hazard=replace(base.hazard, count=hazard_count),
+    )
     runner = Runner(cfg, seed=seed, agents=agents)
     runner.setup()
     world = runner._world
@@ -165,6 +173,8 @@ def run_seed(
             m["mode"][mode] += 1
             if action.eat:
                 m["eat_ticks"] += 1
+                if m["energy_before"] >= float(world._agents[aid]["max_energy"]) * 0.9:
+                    m["wasted_eat"] += 1
             speed = action.thrust * 8.0
             drain = (0.08 + 0.04 * speed) * dt
             m["last_drain"] = drain
@@ -215,6 +225,9 @@ def run_seed(
                 m["class"] = (
                     "hazard" if m["hazard_loss"] > m["starve_loss"] else "starvation"
                 )
+                m["food_left_at_death"] = sum(
+                    p["amount"] for p in world._food_patches
+                )
                 alive.discard(aid)
         if result.terminated:
             break
@@ -253,33 +266,58 @@ def fmt_group(metrics: list[dict[str, Any]], label: str) -> None:
     )
 
 
+def report_starved(m: dict[str, Any]) -> None:
+    n = m["live_steps"] or 1
+    mode = {k: m["mode"][k] / n for k in MODES}
+    print(f"  starved agent {m['id']}:")
+    print(f"    death step={m['survival']}  food eaten={m['food_units']:.1f} units")
+    print(
+        f"    food left at death={m['food_left_at_death']:.1f}  "
+        f"max_food=400"
+    )
+    print(
+        f"    energy gained (food)={m['energy_in_food']:.1f}  "
+        f"energy spent={m['energy_spent']:.1f}"
+    )
+    print("    mode fractions: " + ", ".join(f"{k}={mode[k]:.3f}" for k in MODES))
+    print(
+        f"    food ray hit fraction={m['food_ray_hits']/n:.3f}  "
+        f"eat ticks={m['eat_ticks']}  wasted_eat(energy>=0.9max)={m['wasted_eat']}"
+    )
+    print("      step   x     y    E  mode  foodray tgt amt eat")
+    for row in m["trace"]:
+        print(
+            f"      {row[0]:5d} {row[1]:5.1f} {row[2]:5.1f} {row[3]:5.1f} "
+            f"{row[4]:6s} {row[5]!s:5s} {row[6]:3s} {row[7]:4.1f} {int(row[8])}"
+        )
+
+
 def main() -> None:
-    seeds = list(range(10))
-    agents = 5
+    # Solo diagnosis: 1 agent, 1 hazard, Balanced (supply_ratio 2.0, radius
+    # 16), 20 seeds, sensor heuristic with flee.
+    seeds = list(range(20))
+    agents = 1
+    hazard_count = 1
     starved_total = 0
-    survivor_total = 0
+    other_total = 0
     for seed in seeds:
-        track = run_seed(seed, agents=agents)
-        starved = [m for m in track.values() if m["class"] == "starvation"]
-        survivors = [m for m in track.values() if m["class"] != "starvation"]
-        starved_total += len(starved)
-        survivor_total += len(survivors)
-        print(f"=== seed {seed}: starved={len(starved)} survivors={len(survivors)} ===")
-        fmt_group(starved, "starved")
-        fmt_group(survivors, "survivors")
-        for m in starved[:3]:
-            print(
-                f"    traced starved agent {m['id']} (survival {m['survival']}, "
-                f"energy_at_death {m['energy_at_death']:.1f}, food_eaten {m['food_units']:.1f})"
-            )
-            print("      step   x     y    E  mode  foodray tgt amt eat")
-            for row in m["trace"]:
-                print(
-                    f"      {row[0]:5d} {row[1]:5.1f} {row[2]:5.1f} {row[3]:5.1f} "
-                    f"{row[4]:6s} {row[5]!s:5s} {row[6]:3s} {row[7]:4.1f} {int(row[8])}"
-                )
-    print(f"\nAGGREGATE over {len(seeds)} seeds x {agents} agents = {agents*len(seeds)} agents")
-    print(f"starved total = {starved_total}, survivors = {survivor_total}")
+        track = run_seed(
+            seed,
+            agents=agents,
+            hazard_count=hazard_count,
+            flee_enabled=True,
+            policy="heuristic",
+        )
+        m = next(iter(track.values()))
+        cls = m["class"]
+        print(f"=== seed {seed}: class={cls} survival={m['survival']} ===")
+        if cls == "starvation":
+            starved_total += 1
+            report_starved(m)
+        else:
+            other_total += 1
+    print(f"\nAGGREGATE over {len(seeds)} seeds: starved={starved_total} other={other_total}")
+    print("(solo = 1 agent, 1 hazard, supply_ratio 2.0, radius 16, cap 10000)")
 
 
 if __name__ == "__main__":

@@ -41,6 +41,7 @@ class ScenarioWidget(QWidget):
             (
                 "Custom",
                 "Balanced",
+                "Solo",
                 "Harsh (original)",
                 "Sparse food",
                 "Abundant food",
@@ -90,13 +91,14 @@ class ScenarioWidget(QWidget):
     def _apply_preset(self, name: str) -> None:
         from simlab.core.config import load_config
 
-        if name in ("Balanced", "Harsh (original)"):
-            path = (
-                "configs/balanced.toml"
-                if name == "Balanced"
-                else "configs/harsh_original.toml"
-            )
-            preset = load_config(path)
+        file_presets = {
+            "Balanced": "configs/balanced.toml",
+            "Solo": "configs/solo.toml",
+            "Harsh (original)": "configs/harsh_original.toml",
+        }
+        if name in file_presets:
+            preset = load_config(file_presets[name])
+            self.agent_count.setValue(preset.agent.count)
             self.food_density.setValue(round(preset.food.spawn_rate * 100))
             self.food_regrow_rate.setValue(round(preset.food.regrow_rate * 100))
             self.hazard_count.setValue(preset.hazard.count)

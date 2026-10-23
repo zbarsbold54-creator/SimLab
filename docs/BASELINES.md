@@ -50,6 +50,26 @@ agents that starved while >= 50% of the 400-unit food capacity was uneaten.
 | heuristic | 69.0 | 10000 | 4 | 27 | 69 | 363.6 | 4 |
 | random | 0.0 | 3242 | 10 | 90 | 0 | 400.0 | 10 |
 
+## Solo scenario (`configs/solo.toml`)
+
+Solo = default/Balanced scenario with 1 agent and 1 hazard (same arena,
+detection radius 16, `supply_ratio = 2.0`). 20 seeds, cap 10000.
+
+| Policy | cap% | median | starve | hazard | trunc | food_left |
+| --- | --- | --- | --- | --- | --- | --- |
+| heuristic | 60.0 | 10000 | 0 | 8 | 12 | 379.9 |
+| heuristic_noflee | 25.0 | 1245 | 0 | 15 | 5 | 379.8 |
+| random | 0.0 | 4198 | 4 | 16 | 0 | 400.0 |
+
+Reproduction:
+
+```text
+python scripts/solo_eval.py
+```
+
+(20 seeds, `run_episode(policy, seed, agents=1, cap=10000,
+config_path="configs/solo.toml")`).
+
 ## Reproduction
 
 The entire grid above (except the final 20-seed row) is produced by:
