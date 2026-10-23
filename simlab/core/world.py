@@ -161,8 +161,8 @@ class World:
             rewards[agent_id] = reward
         states = self._state_view() if include_agent_states else {}
         observations = self._observation_batch() if include_observations else {}
-        snapshot = self.snapshot() if include_snapshot else None
         self._regrow_food()
+        snapshot = self.snapshot() if include_snapshot else None
         terminated = not any(state["is_alive"] for state in self._agents.values())
         return StepResult(
             MappingProxyType(states),

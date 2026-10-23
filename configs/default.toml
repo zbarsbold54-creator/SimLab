@@ -11,10 +11,13 @@ count = 5
 
 [hazard]
 damage_per_step = 1
+detection_radius = 16
 
 [food]
 spawn_rate = 0.1
 max_food = 20
+regrow_rate = 0.0
+supply_ratio = 2.0
 
 [components]
 drive = "simple"

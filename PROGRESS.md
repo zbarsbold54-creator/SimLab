@@ -469,3 +469,63 @@ Revised decision rule: sensor cap 40-70% at all counts, random <10%, <10% of heu
 
 ### Verified
 Full suite `47 passed`, ruff clean.
+
+---
+
+## Round 4 - "World v1 baseline"
+
+### Step 1 - decision rule and default copy
+New per-agent rule applied to the 5-agent reference only, 20 seeds, cap 10000
+(`scripts/rule_check_5agent.py`): heuristic cap 69.0% (PASS 40-75), random cap
+0.0% (PASS <10), starved-with->=50%-food-uneaten 4% (PASS <10), heuristic hazard
+deaths 27% (PASS 5-50). All criteria passed, so balanced settings were copied into
+`configs/default.toml` (hazard detection_radius 16, food supply_ratio 2.0, raw
+regrow_rate 0.0). `configs/balanced.toml` and `configs/harsh_original.toml` kept.
+
+### Snapshot/restore regression (fixed)
+Copying the defaults enabled nonzero regrowth, which exposed a genuine ordering
+bug in `World.step`: the snapshot was captured **before** `_regrow_food`, so a
+snapshot at step N omitted step N's regrowth while `state_hash()` (computed
+after the step) included it. Restoring such a checkpoint systematically dropped
+that regrowth tick, so `test_scrub_back_500_steps_and_replay...` failed for any
+nonzero regrowth rate. Fixed by running `_regrow_food` before snapshot capture,
+making the snapshot reflect the full post-step state consistent with
+`state_hash()`. This was a code fix, not a stale-default test change; no test
+needed updating. Full suite: 47 passed; ruff clean.
+
+### Step 2 - hazard scaling diagnosis (no config change)
+`scripts/hazard_sweep.py`, 15 seeds, cap 10000. Confirmed the chase rule: each
+hazard independently targets the nearest alive agent within its
+detection_radius (`World._move_hazards`).
+
+```text
+policy      ag  haz   cap% starve hazard  trunc
+heuristic    1    1   33.3      6      4      5
+random       1    1    0.0      3     12      0
+heuristic    1    2   26.7      3      8      4
+random       1    2    0.0      1     14      0
+heuristic    1    4   20.0      2     10      3
+random       1    4    0.0      0     15      0
+heuristic    5    4   74.7      4     15     56
+random       5    4    0.0      9     66      0
+heuristic    5    8   70.7      1     21     53
+random       5    8    0.0      0     75      0
+heuristic   20    4   85.3      0     44    256
+random      20    4    0.0    145    155      0
+heuristic   20    8   79.0      0     63    237
+random      20    8    0.0     32    268      0
+heuristic   20   16   55.3      0    134    166
+random      20   16    0.0      1    299      0
+```
+
+The data support the hypothesis: at 1 agent each hazard chases the single agent,
+so increasing hazard count monotonically lowers the cap (33 -> 27 -> 20%) and
+raises hazard deaths. Proposed (not implemented): optional `hazard.per_agent`
+(unset by default) analogous to `food.supply_ratio` so hazard pressure scales
+with agent count.
+
+### Step 3 - docs/BASELINES.md
+Written: reference scenario, results table (random / heuristic_noflee /
+heuristic / oracle at 1/5/20 agents), reproduce command per row, commit hash
+(`world-v1`), oracle policies marked "not an upper bound; kept for reference
+only", and which policies need observations.
