@@ -76,7 +76,11 @@ def compute_actions(
             world_state = {
                 "food_locations": [
                     patch["position"] for patch in world._food_patches
-                ]
+                ],
+                "food_patches": [
+                    (tuple(patch["position"]), patch["amount"])
+                    for patch in world._food_patches
+                ],
             }
             actions[agent_id] = policy.select_action(
                 state, world_state, [], step

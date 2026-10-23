@@ -279,14 +279,22 @@ class World:
             [state["position"] for state in states], dtype=np.float64
         )
         headings = np.asarray([state["heading"] for state in states], dtype=np.float64)
+        # Depleted food patches (amount <= 0) are invisible to sensors so that
+        # policies cannot chase empty patches forever.
+        food_positions = [
+            patch["position"] for patch in self._food_patches if patch["amount"] > 0.0
+        ]
+        food_arr = (
+            np.asarray(food_positions, dtype=np.float64).reshape(-1, 2)
+            if food_positions
+            else np.empty((0, 2), dtype=np.float64)
+        )
         distances, types = ray_sensors_batch(
             positions,
             headings,
             self.width,
             self.height,
-            np.asarray(
-                [patch["position"] for patch in self._food_patches], dtype=np.float64
-            ).reshape(-1, 2),
+            food_arr,
             np.asarray(
                 [patch["position"] for patch in self._hazard_patches],
                 dtype=np.float64,

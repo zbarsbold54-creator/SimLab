@@ -374,3 +374,56 @@ Defaults unchanged; no `default.toml` modification.
 - Awaiting your choice on adopting a recommended parameter set (detection radius / regrow rate) into a config or named preset.
 - Random policy and oracle/sensor comparisons are report-only; no default changes made.
 - Whether to keep `scripts/world_sweep_regrowth.py` as a long-term tool.
+
+## Balanced preset and baseline verification
+
+### Death-cause classifier (verified and fixed)
+Old classifier labeled a death "hazard" unless energy hit zero at the exact death step, so a random walker that starved while wandering into a hazard field was mislabeled. New classifier in `scripts/episode_lib.py` measures cumulative health loss by source (hazard contact damage vs the 0.5/step starvation drain) and assigns the cause to whichever actually consumed health; survivors at the cap are truncation. Verified on random policy, 5 agents, 10 seeds:
+
+```text
+random total agents=50 median_survival=3546 starvation/hazard/truncation=5/45/0
+```
+
+Random walkers eat nothing (food_eaten=0, food_left=400). Their energy budget (mean thrust 0.5 -> speed 4 -> drain 0.024/step) empties around step 4000-4200; health then drains 0.5/step, so pure starvers die ~step 4300. Many instead die earlier inside hazard fields (energy still positive, hazard_loss ~100), which is why a naive "hazard" label was common and the median ends up ~3546 rather than near 4300.
+
+### Oracle baseline (verified and aligned)
+OracleHeuristicPolicy now mirrors the sensor HeuristicPolicy control law exactly: it filters depleted patches (amount <= 0) and uses the same turn/0.8 thrust/eat-within-1.5 mapping, sourced from world geometry instead of rays. Neither policy has flee logic (both only seek food and otherwise wander), so they are behaviorally equivalent modulo how they sense food. Medians are per agent (pooled across agents x seeds). Re-run on default config, 10 seeds, 5 agents, cap 10000:
+
+```text
+heuristic           median_survival=5808 starve/hazard/trunc=40/10/0
+oracle_heuristic   median_survival=3188 starve/hazard/trunc=41/9/0
+random             median_survival=3546 starve/hazard/trunc=5/45/0
+```
+
+Sensor beats oracle because the ray-sampled sensor spends much of its time in low-thrust wander (0.5, drain 0.024) rather than constant full-speed pursuit (0.8, drain 0.0336), and its quantized turning disperses agents so they exploit far more of the map; it converts far more of the 400 food units into survival time before energy runs out. (Earlier reported 6421/4100 came from the old classifier; ordering is unchanged.)
+
+### Depleted-patch sensor fix
+Observations now exclude food patches with amount <= 0, so ray-based policies cannot chase empty patches (this closes the original starvation anomaly for the registered sensor heuristic, not just `_default_action`). Oracle applies the same filter in `select_action`.
+
+### Balanced preset (added)
+- `configs/balanced.toml`: default config with `hazard.detection_radius = 16` and `food.regrow_rate = 0.02`. `configs/harsh_original.toml` unchanged.
+- Scenario dock: added a "Balanced" preset (sets the sliders and detection radius).
+- `tests/test_balanced.py`: qualifies preset loads (radius 16, regrow 0.02), determinism (two identical seeds -> equal state hash over 2000 steps), and regrowth is active and capped.
+
+### Balanced evaluation (decision gate)
+`scripts/balanced_eval.py`, config balanced.toml, cap 10000. Seeds reduced 20->15 to stay under the 15-minute budget (858s estimated; 793.6s actual). Break-even regrow rates (full-speed pursuit drain 0.0336/agent/step, 20 patches): 1 agent = 0.00168, 5 agents = 0.00840, 20 agents = 0.03360.
+
+```text
+policy agents median_survival cap_pct mean_food_left starve/hazard/trunc
+heuristic          1  10000 73.3 394.0  2/2/11
+heuristic          5   6906 41.3 383.2 40/4/31
+heuristic         20   6766 37.0 206.6 185/4/111
+oracle_heuristic   1   3200 26.7 399.8  9/2/4
+oracle_heuristic   5   3199 22.7 388.9 38/20/17
+oracle_heuristic  20   3186 10.3 338.0 176/93/31
+random              1   1886  0.0 400.0  0/15/0
+random              5   3229  0.0 400.0  8/67/0
+random             20   4262  0.0 400.0 141/159/0
+```
+
+Decision rule: at 5 agents sensor reaches cap 41.3% (in 40-70), random 0% (<10), but starvation is 40/44 = 90.9% of heuristic non-truncation deaths (>5%). Rule fails, so `configs/default.toml` was NOT changed.
+
+1-agent vs 20-agent: a single agent reaches the cap most often (73%) but leaves ~394 food because it cannot cover the map; 20 agents consume far more (food_left 207) but cap drops to 37% from competition/clustering thinning patches faster. Regrowth should scale with agent count: the break-even rate is linear in agent count (0.0017 / 0.0084 / 0.0336), so one fixed rate cannot be optimal for all counts; the current 0.02 covers 5 agents but is above 1-agent need and below 20-agent need. Recommend making regrow_rate a per-scenario value and/or scaling it with agent count, plus better foraging/hazard avoidance to cut the dominant starvation mode.
+
+### Verified
+Full suite `44 passed`, ruff clean.

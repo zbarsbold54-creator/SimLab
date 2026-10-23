@@ -32,12 +32,14 @@ class ScenarioWidget(QWidget):
         super().__init__()
         self._config = config
         self._seed = seed
+        self._detection_radius = float(config.hazard.detection_radius)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.preset = QComboBox()
         self.preset.addItems(
             (
                 "Custom",
+                "Balanced",
                 "Harsh (original)",
                 "Sparse food",
                 "Abundant food",
@@ -85,13 +87,19 @@ class ScenarioWidget(QWidget):
         return slider
 
     def _apply_preset(self, name: str) -> None:
-        if name == "Harsh (original)":
-            from simlab.core.config import load_config
+        from simlab.core.config import load_config
 
-            harsh = load_config("configs/harsh_original.toml")
-            self.food_density.setValue(round(harsh.food.spawn_rate * 100))
-            self.food_regrow_rate.setValue(round(harsh.food.regrow_rate * 100))
-            self.hazard_count.setValue(harsh.hazard.count)
+        if name in ("Balanced", "Harsh (original)"):
+            path = (
+                "configs/balanced.toml"
+                if name == "Balanced"
+                else "configs/harsh_original.toml"
+            )
+            preset = load_config(path)
+            self.food_density.setValue(round(preset.food.spawn_rate * 100))
+            self.food_regrow_rate.setValue(round(preset.food.regrow_rate * 100))
+            self.hazard_count.setValue(preset.hazard.count)
+            self._detection_radius = float(preset.hazard.detection_radius)
             return
         presets = {
             "Sparse food": (0.025, self._config.hazard.count),
@@ -112,7 +120,11 @@ class ScenarioWidget(QWidget):
                 spawn_rate=self.food_density.value() / 100,
                 regrow_rate=self.food_regrow_rate.value() / 100,
             ),
-            hazard=replace(self._config.hazard, count=self.hazard_count.value()),
+            hazard=replace(
+                self._config.hazard,
+                count=self.hazard_count.value(),
+                detection_radius=self._detection_radius,
+            ),
             policy=self.policy.currentText(),
             drive=self.drive.currentText(),
         )
