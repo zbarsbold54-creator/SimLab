@@ -427,3 +427,45 @@ Decision rule: at 5 agents sensor reaches cap 41.3% (in 40-70), random 0% (<10),
 
 ### Verified
 Full suite `44 passed`, ruff clean.
+
+## Foraging diagnosis and heuristic v2
+
+### Step 1 + 4 — starvation root cause and foraging fix
+Diagnosis (`scripts/foraging_diag.py`, Balanced, 5 agents, 10 seeds, `heuristic_noflee`): starved agents spent ~99.4% of steps in `seek` mode with only ~14-20 eat ticks total, and never reached eat range — the nearest-food-ray distance was pinned at ~2.86-2.88 (just above the 1.5 threshold) while the agent orbited the patch. The defect is a convergence/orbit problem, not out-of-range eating.
+
+Fix in `HeuristicPolicyNoflee`/`OracleHeuristicPolicyNoflee`: a near-food branch (within 5.0 units) that reduces thrust to 0.5 and steers harder (turn gain /60) so the agent converges instead of orbiting. After the fix, starved agents eat properly (eat ticks ~1900-2700, food ~55-240 units, eat-mode ~30-34%); starvation dropped from 22/30 (pinned) to 4/50 noflee and 3/50 with flee.
+
+### Step 2 — sensor vs oracle reconciliation
+On `heuristic_noflee` vs `oracle_noflee` (6 seeds, 5 agents), mean thrust (0.799 vs 0.800) and drain/step (0.0336) are identical, so the survival gap is not explained by thrust/drain. Sensor ate 196.2 food units/agent vs oracle 90.4 and survived median 8406 vs 3183; the oracle dies earlier to hazards and therefore converts fewer total units per agent. Oracle is not currently a meaningful upper bound.
+
+### Step 3 — hazard flee
+Added flee to both sensor (`HeuristicPolicy`, default `heuristic`) and oracle (`OracleHeuristicPolicy`, default `oracle`): flee when hazard threat > 0.3, turn away from the nearest hazard ray/bearing. Historic non-flee versions remain registered as `heuristic_noflee` and `oracle_noflee` (alias `oracle_heuristic`).
+
+### Step 5 — scenario-level supply scaling
+Added optional `food.supply_ratio`. When set, `Runner` computes `regrow_rate = supply_ratio * n_agents * 0.0336 / n_patches` (0.0336 = nominal drain per agent at thrust 0.8). Raw `regrow_rate` stays available (slider now labeled "Food regrowth (raw)"). `configs/balanced.toml` now uses `supply_ratio = 2.0` (+ radius 16). Tests: rate scales with agent count, determinism holds, snapshot/restore preserves the effective rate.
+
+### Step 6 — Balanced re-evaluation (decision gate)
+`scripts/balanced_eval_v2.py`, multiprocessing (one process per seed, stdlib). Verified `mp == serial` on 2 seeds. Grid: 15 seeds, cap 10000, agents {1,5,20}, policies {heuristic, heuristic_noflee, oracle, random}:
+
+```text
+policy             ag   cap%  median starve hazard  trunc food_left svfood
+heuristic           1   20.0    4449      2     10      3    391.2      2
+heuristic_noflee    1    0.0    1973      1     14      0    378.3      1
+oracle              1    0.0    1015      1     14      0    394.5      1
+random              1    0.0    1886      0     15      0    400.0      0
+heuristic           5   74.7   10000      4     15     56    358.6      4
+heuristic_noflee    5   12.0    4610      4     62      9    380.6      4
+oracle              5    4.0    1247      0     72      3    390.2      0
+random              5    0.0    3242      9     66      0    400.0      9
+heuristic          20   85.3   10000      0     44    256    384.2      0
+heuristic_noflee   20   70.0   10000     10     80    210    382.5     10
+oracle             20   13.0    2744     16    245     39    394.4     16
+random             20    0.0    4262    145    155      0    400.0    145
+```
+
+Final 20-seed run, 5 agents: heuristic cap 69.0%, median 10000, split (4,27,69), food_left 363.6, starved_with_food 4; random cap 0%, median 3242, split (10,90,0).
+
+Revised decision rule: sensor cap 40-70% at all counts, random <10%, <10% of heuristic deaths starved with >=50% food uneaten, heuristic hazard deaths non-zero and <40% of deaths. Result: NOT met. Sensor cap is 20% at 1 agent (too low) and 74.7-85.3% at 5/20 agents (above 70); the deaths that occur are dominated by hazard contact (79-100% of heuristic deaths). Random is 0% everywhere. `configs/default.toml` was NOT changed. Regrowth already scales with agent count via `supply_ratio`; at 5/20 agents supply exceeds drain so agents reach the cap, while at 1 agent the lone agent cannot cover the map and dies to hazards.
+
+### Verified
+Full suite `47 passed`, ruff clean.

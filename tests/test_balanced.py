@@ -15,10 +15,11 @@ def app() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
-def test_balanced_config_file_has_radius_16_and_regrow_0_02() -> None:
+def test_balanced_config_has_supply_ratio() -> None:
     cfg = load_config("configs/balanced.toml")
     assert cfg.hazard.detection_radius == 16.0
-    assert cfg.food.regrow_rate == 0.02
+    assert cfg.food.regrow_rate == 0.0
+    assert cfg.food.supply_ratio == 2.0
     assert cfg.food.spawn_rate == 0.1
 
 
@@ -30,7 +31,8 @@ def test_balanced_preset_loads_into_scenario(app: QApplication) -> None:
     window.scenario.apply()
     cfg = window._config
     assert cfg.hazard.detection_radius == 16.0
-    assert cfg.food.regrow_rate == 0.02
+    assert cfg.food.regrow_rate == 0.0
+    assert cfg.food.supply_ratio == 2.0
     assert cfg.food.spawn_rate == 0.1
     assert cfg.agent.count == 5
     window.close()
@@ -58,3 +60,40 @@ def test_balanced_regrowth_is_active_and_capped() -> None:
     for _ in range(1000):
         world.step({})
     assert world._food_patches[0]["amount"] == pytest.approx(20.0)
+
+
+def test_supply_ratio_scales_with_agent_count() -> None:
+    cfg = load_config("configs/balanced.toml")
+    assert cfg.food.supply_ratio == 2.0
+    rate5 = Runner(cfg, seed=1, agents=5)._world.food_regrow_rate
+    rate20 = Runner(cfg, seed=1, agents=20)._world.food_regrow_rate
+    assert rate5 == pytest.approx(2.0 * 5 * 0.0336 / 20.0)
+    assert rate20 == pytest.approx(2.0 * 20 * 0.0336 / 20.0)
+    assert rate20 == pytest.approx(rate5 * 4.0)
+
+
+def test_supply_ratio_determinism() -> None:
+    cfg = load_config("configs/balanced.toml")
+    hashes = []
+    for _ in range(2):
+        runner = Runner(cfg, seed=9, agents=5)
+        runner.setup()
+        world = runner._world
+        for _ in range(CAP):
+            runner.run_step(include_observations=False, include_agent_states=False)
+        hashes.append(world.state_hash())
+    assert hashes[0] == hashes[1]
+
+
+def test_snapshot_restore_preserves_supply_rate() -> None:
+    cfg = load_config("configs/balanced.toml")
+    runner = Runner(cfg, seed=3, agents=5)
+    runner.setup()
+    world = runner._world
+    rate_before = world.food_regrow_rate
+    assert rate_before == pytest.approx(0.0168)
+    for _ in range(100):
+        runner.run_step(include_observations=False, include_agent_states=False)
+    snap = world.snapshot()
+    world.restore(snap)
+    assert world.food_regrow_rate == pytest.approx(rate_before)

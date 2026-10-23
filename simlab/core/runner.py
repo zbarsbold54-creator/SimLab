@@ -30,7 +30,7 @@ class Runner:
             self._config.world.width,
             self._config.world.height,
             self._seed,
-            food_regrow_rate=self._config.food.regrow_rate,
+            food_regrow_rate=self._effective_regrow_rate(),
         )
         self._step_count = 0
         self._max_steps = 100000
@@ -41,6 +41,31 @@ class Runner:
         self._policy = None
         self._drive_core = None
         self._components_loaded = False
+
+    def _effective_regrow_rate(self) -> float:
+        """Resolve the world regrow rate from config.
+
+        If ``food.supply_ratio`` is set, regrowth is scaled so that a given
+        per-agent supply (in units per step per agent) is maintained as the
+        agent count changes: ``rate = supply_ratio * n_agents * 0.0336 /
+        n_patches``. Otherwise the raw ``food.regrow_rate`` is used.
+        """
+        supply = self._config.food.supply_ratio
+        if supply is None:
+            return float(self._config.food.regrow_rate)
+        n_patches = min(
+            self._config.food.max_food,
+            max(
+                1,
+                int(
+                    self._config.world.width
+                    * self._config.world.height
+                    * self._config.food.spawn_rate
+                    / 10
+                ),
+            ),
+        )
+        return float(supply) * self._agent_count * 0.0336 / n_patches
 
     def setup(self) -> None:
         self._world.reset(self._seed)

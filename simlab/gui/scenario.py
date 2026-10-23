@@ -33,6 +33,7 @@ class ScenarioWidget(QWidget):
         self._config = config
         self._seed = seed
         self._detection_radius = float(config.hazard.detection_radius)
+        self._supply_ratio = config.food.supply_ratio
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.preset = QComboBox()
@@ -61,7 +62,7 @@ class ScenarioWidget(QWidget):
         form.addRow("Preset", self.preset)
         form.addRow("Agents", self.agent_count)
         form.addRow("Food density (initial patches)", self.food_density)
-        form.addRow("Food regrowth", self.food_regrow_rate)
+        form.addRow("Food regrowth (raw)", self.food_regrow_rate)
         form.addRow("Hazards", self.hazard_count)
         form.addRow("Policy", self.policy)
         form.addRow("DriveCore", self.drive)
@@ -100,7 +101,9 @@ class ScenarioWidget(QWidget):
             self.food_regrow_rate.setValue(round(preset.food.regrow_rate * 100))
             self.hazard_count.setValue(preset.hazard.count)
             self._detection_radius = float(preset.hazard.detection_radius)
+            self._supply_ratio = preset.food.supply_ratio
             return
+        self._supply_ratio = None
         presets = {
             "Sparse food": (0.025, self._config.hazard.count),
             "Abundant food": (0.25, self._config.hazard.count),
@@ -119,6 +122,7 @@ class ScenarioWidget(QWidget):
                 self._config.food,
                 spawn_rate=self.food_density.value() / 100,
                 regrow_rate=self.food_regrow_rate.value() / 100,
+                supply_ratio=self._supply_ratio,
             ),
             hazard=replace(
                 self._config.hazard,

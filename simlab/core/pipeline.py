@@ -81,6 +81,9 @@ def compute_actions(
                     (tuple(patch["position"]), patch["amount"])
                     for patch in world._food_patches
                 ],
+                "hazard_locations": [
+                    tuple(patch["position"]) for patch in world._hazard_patches
+                ],
             }
             actions[agent_id] = policy.select_action(
                 state, world_state, [], step
