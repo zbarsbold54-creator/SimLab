@@ -129,6 +129,50 @@ def test_multiworker_training_is_deterministic_across_processes(tmp_path: Path):
         assert torch.equal(a[k], b[k]), f"tensor diverged: {k}"
 
 
+def test_training_seed_controls_initial_weights(tmp_path: Path):
+    """The training seed must seed policy init: different seeds give different
+    initial weights, and the same seed gives identical initial weights across
+    separate processes."""
+    import torch
+
+    from simlab.training.ppo import PPOConfig, _build_net
+
+    def init_weights(seed: int) -> dict[str, torch.Tensor]:
+        policy = _build_net(PPOConfig(seed=seed))
+        return {k: v.clone() for k, v in policy.net_state_dict().items()}
+
+    w_a = init_weights(100000)
+    w_b = init_weights(100001)
+    diff = max((w_a[k] - w_b[k]).abs().max().item() for k in w_a)
+    assert diff > 1e-6, "different training seeds must give different initial weights"
+
+    outs = [tmp_path / "w1.pt", tmp_path / "w2.pt"]
+    for out in outs:
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import torch,sys; sys.path.insert(0,r'"
+                + str(REPO)
+                + "'); "
+                "from simlab.training.ppo import PPOConfig,_build_net; "
+                "p=_build_net(PPOConfig(seed=7)); "
+                "torch.save(p.net_state_dict(), r'"
+                + str(out)
+                + "')",
+            ],
+            cwd=str(REPO),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    a = torch.load(outs[0], map_location="cpu", weights_only=True)
+    b = torch.load(outs[1], map_location="cpu", weights_only=True)
+    assert set(a) == set(b)
+    for k in a:
+        assert torch.equal(a[k], b[k]), f"tensor diverged across processes: {k}"
+
+
 def test_backward_compat_legacy_checkpoint():
     if not LEGACY_CKPT.exists():
         pytest.skip("legacy learner-v0 checkpoint missing")

@@ -72,7 +72,7 @@ def _build_net(cfg: PPOConfig):
         "backbone": "gru",
         "fusion": "concat",
         "obs_mode": cfg.obs_mode,
-        "seed": 0,
+        "seed": cfg.seed,
     }
     return make_policy(policy_cfg)
 
