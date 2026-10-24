@@ -53,6 +53,36 @@ For a policy with recurrent internal state that must be stepped every step, impl
 - `act` is called once per live agent per step without an agent id — index hidden state by a stable per-agent identity if your policy depends on which agent is acting.
 - Register as usual with `@register("policy", "my_policy")`; the Scenario dock and the eval CLI then discover it.
 
+## Plug in your own architecture
+
+Learned policies are built by composing a world-side **DriveCore** (numpy) with
+a learner-side **Backbone** (torch) behind the `TorchPolicy` adapter. Backbones
+register in the existing `backbone` slot; drive cores in the existing `drive`
+slot. Build a policy from a config dict:
+
+```python
+from simlab.training.torch_policy import make_policy
+
+cfg = {
+    "backbone": "transformer",   # registered in the existing `backbone` slot
+    "drive_core": "rda8",        # world-facing numpy drive core
+    "fusion": "concat",          # "concat" | "film"
+    "obs_mode": "obs_drives",
+    "kwargs": {"context": 16, "d_model": 64, "n_heads": 4, "n_layers": 2},
+    "match_params": 9798,        # optional: match a param count within 5%
+    "seed": 0,
+}
+policy = make_policy(cfg)        # -> TorchPolicy implementing the Policy port
+policy.save_checkpoint("logs/my_arch/final.pt")  # stores the arch config
+```
+
+Checkpoints store the architecture config; loading one rebuilds the backbone from
+the stored config. Built-in backbones: `gru` (legacy GRU), `transformer` (causal
+ring buffer), `rda` (stub — supply your own through the slot). Built-in drive
+cores: `none`, `constant`, `rda8`. Eval the resulting policy with
+`simlab.cli eval --policy learned_torch --checkpoint logs/my_arch/final.pt`; the
+eval table prints `param_count` per config.
+
 ## Add a retention rule
 
 A retention rule implements `step(previous, drives, context)` and returns a drive array of the same shape:

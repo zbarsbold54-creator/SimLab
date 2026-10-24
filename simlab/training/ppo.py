@@ -49,9 +49,16 @@ class PPOConfig:
 
 
 def _build_net(obs_mode: str):
-    from simlab.plugins.learned_gru import LearnedGRU
+    from simlab.training.torch_policy import make_policy
 
-    return LearnedGRU(seed=0, config=None, with_drives=obs_mode == "obs_drives")
+    return make_policy(
+        {
+            "backbone": "gru",
+            "fusion": "concat",
+            "obs_mode": obs_mode,
+            "seed": 0,
+        }
+    )
 
 
 class _WorkerEnv:
@@ -73,7 +80,7 @@ class _WorkerEnv:
         self._build_world(c)
         self.policy = _build_net(cfg.obs_mode)
         self.policy.reset(cfg.n_agents, np.random.default_rng(self.seed))
-        self._hidden = {aid: self.policy._t.zeros(self.policy._hidden) for aid in self.world._agents}
+        self._hidden = {aid: self.policy._t.zeros(self.policy.hidden_size) for aid in self.world._agents}
         self._init_prev()
 
     def _build_world(self, c) -> None:
@@ -99,7 +106,7 @@ class _WorkerEnv:
         c = replace(base, agent=replace(base.agent, count=self.cfg.n_agents))
         self._build_world(c)
         self.policy.reset(self.cfg.n_agents, np.random.default_rng(self.seed))
-        self._hidden = {aid: self.policy._t.zeros(self.policy._hidden) for aid in self.world._agents}
+        self._hidden = {aid: self.policy._t.zeros(self.policy.hidden_size) for aid in self.world._agents}
         self._init_prev()
 
     def collect(self, torch, rng) -> list[dict[str, Any]]:
@@ -216,7 +223,7 @@ def _rollout_worker(rank: int, cfg: PPOConfig, task_q: mp.Queue, result_q: mp.Qu
         job = task_q.get()
         if job is None:
             break
-        env.policy._net.load_state_dict(job["weights"])
+        env.policy.load_net_state_dict(job["weights"])
         try:
             segs = env.collect(torch, rng)
         except Exception as exc:  # noqa: BLE001
@@ -234,7 +241,7 @@ class PPOTrainer:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.torch = torch
         self.policy = _build_net(cfg.obs_mode)
-        self.opt = torch.optim.Adam(self.policy._net.parameters(), lr=cfg.lr0)
+        self.opt = torch.optim.Adam(self.policy.parameters(), lr=cfg.lr0)
         self.iterations = max(1, math.ceil(cfg.total_steps / (cfg.workers * cfg.env_steps_per_rollout)))
         self._task_q: mp.Queue | None = None
         self._result_q: mp.Queue | None = None
@@ -260,7 +267,7 @@ class PPOTrainer:
         self._procs = []
 
     def _broadcast(self) -> None:
-        sd = {k: v.detach().clone() for k, v in self.policy._net.state_dict().items()}
+        sd = {k: v.detach().clone() for k, v in self.policy.net_state_dict().items()}
         for _ in self._procs:
             self._task_q.put({"weights": sd})
 
@@ -317,7 +324,6 @@ class PPOTrainer:
         chunk_starts = np.asarray(chunk_starts)
         n_chunks = len(chunk_starts)
 
-        net = self.policy._net
         eps = self.cfg.clip
         S = self.cfg.seq_len
 
@@ -363,17 +369,17 @@ class PPOTrainer:
                 retb = t.from_numpy(ret_b)
                 maskb = t.from_numpy(mask_b)
 
-                h = t.zeros((B, self.policy._hidden))
+                h = t.zeros((B, self.policy.hidden_size))
                 pol_loss = t.zeros((), dtype=t.float32)
                 val_loss = t.zeros((), dtype=t.float32)
                 ent_loss = t.zeros((), dtype=t.float32)
                 kl_loss = t.zeros((), dtype=t.float32)
-                std_t = t.exp(net.log_std_turn)
-                std_th = t.exp(net.log_std_thrust)
+                std_t = t.exp(self.policy.log_std_turn)
+                std_th = t.exp(self.policy.log_std_thrust)
                 for si in range(S):
                     m = maskb[:, si]
                     h = h * m.unsqueeze(-1)
-                    a, v, f = net(Xb[:, si], h)
+                    a, v, f = self.policy.frame_step(Xb[:, si], h, None)
                     turn_m = t.tanh(a[:, 0])
                     thrust_m = t.sigmoid(a[:, 1])
                     eat_p = t.sigmoid(a[:, 2])
@@ -390,8 +396,8 @@ class PPOTrainer:
                     surr2 = t.clamp(ratio, 1.0 - eps, 1.0 + eps) * adv_m
                     pol_loss = pol_loss + (-t.min(surr1, surr2) * m).sum()
                     val_loss = val_loss + (((retb[:, si] - v) ** 2) * m).sum()
-                    ent_turn = 0.5 * (math.log(2 * math.pi * math.e) + 2 * net.log_std_turn)
-                    ent_thrust = 0.5 * (math.log(2 * math.pi * math.e) + 2 * net.log_std_thrust)
+                    ent_turn = 0.5 * (math.log(2 * math.pi * math.e) + 2 * self.policy.log_std_turn)
+                    ent_thrust = 0.5 * (math.log(2 * math.pi * math.e) + 2 * self.policy.log_std_thrust)
                     ent_eat = -(eat_p * t.log(eat_p + 1e-8) + (1 - eat_p) * t.log(1 - eat_p + 1e-8))
                     ent_loss = ent_loss + ((ent_turn + ent_thrust + ent_eat) * m).sum()
                     kl_loss = kl_loss + ((oldb[:, si] - logp) * m).sum()
@@ -440,7 +446,7 @@ class PPOTrainer:
         try:
             results = [
                 run_episode_metrics(
-                    "learned_gru", s, self.cfg.n_agents, 2000, self.cfg.config_path,
+                    "learned_torch", s, self.cfg.n_agents, 2000, self.cfg.config_path,
                     "simple", ckpt,
                 )
                 for s in seeds

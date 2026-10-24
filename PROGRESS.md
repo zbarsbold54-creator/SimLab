@@ -904,3 +904,40 @@ pairwise condition comparison).
 ### Step 9 - suite, ruff, commit, tag
 Full suite 63 passed; ruff clean. Committed as "Learner harness and PPO smoke
 test", tagged learner-v0.
+
+## Phase 7 — architecture-agnostic learner
+
+Status: architecture plumbing complete; committed as `arch-v0`.
+
+- Added `docs/ARCHITECTURES.md` (design note) describing the two-slot model:
+  world-facing numpy DriveCore (`none`/`constant`/`rda8`) and learner-side torch
+  Backbone (`gru`/`transformer`/`rda` stub), joined by a TorchPolicy adapter
+  behind the existing `Policy` port.
+- `simlab/training/backbones.py`: Backbone ABC + GRU (exact legacy reproduction),
+  causal Transformer (ring-buffer state), rda stub, and `match_params` (picks a
+  hidden/d_model size within 5% of a target parameter count).
+- `simlab/training/torch_policy.py`: `TorchPolicy` adapter + `make_policy(cfg)`
+  (keys `backbone`, `drive_core`, `fusion`, `kwargs`, `obs_mode`, `match_params`,
+  `checkpoint`), registered as policy `learned_torch`. Legacy learner-v0
+  checkpoints load automatically (no `arch` key -> GRU, obs mode inferred).
+- `simlab/plugins/drive_cores.py`: numpy drive cores `none`, `constant`, `rda8`
+  (EMA with scalar or per-drive decay) with `get_state()/set_state()` for replay.
+- `simlab/training/ppo.py` refactored to depend only on the TorchPolicy adapter
+  (trainer/eval no longer reach into the network directly).
+- `simlab/cli.py` eval now prints `param_count` per config.
+- Tests (`tests/test_architecture.py`): backward-compat legacy checkpoint loads
+  through the new path and reproduces the exact hash `d3e1532311768f52`
+  (Balanced 5, dev seeds 0-4, cap 2000); parametrized {gru, transformer} x
+  {none, constant, rda8} smoke (shapes, done_mask reset, 2-iteration PPO);
+  rda8 causality; rda8 snapshot/replay bit-identical round-trip; match_params
+  within 5%.
+- `eval --compare` on existing baselines shows no STALE warnings; world/scenario/
+  GUI/heuristic-oracle files untouched.
+
+Raw verification output:
+
+```text
+74 passed in 49.21s
+All checks passed!
+backward_compat hash=d3e1532311768f52 cap_pct=100.0%
+```

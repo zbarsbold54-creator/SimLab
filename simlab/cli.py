@@ -73,11 +73,36 @@ def _eval_worker(
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
     policy, drive, seed, agents, cap, config_path, checkpoint = task
+    if policy == "learned_torch":
+        import simlab.training.torch_policy  # noqa: F401  (registers policy)
     from simlab.eval_lib import run_episode_metrics
 
     return run_episode_metrics(
         policy, seed, agents, cap, config_path, drive=drive, checkpoint=checkpoint
     )
+
+
+def _print_param_count(policy_name: str, config_path: str, checkpoint: str | None) -> None:
+    try:
+        from dataclasses import replace
+
+        from simlab.core.config import load_config
+        from simlab.core.registry import get
+
+        if policy_name == "learned_torch":
+            import simlab.training.torch_policy  # noqa: F401  (registers policy)
+        cls = get("policy", policy_name)
+        if cls is None or not hasattr(cls, "param_count"):
+            return
+        cfg = replace(
+            load_config(config_path),
+            policy=policy_name,
+            policy_checkpoint=checkpoint,
+        )
+        inst = cls(seed=0, config=cfg)
+        print(f"param_count={inst.param_count()}")
+    except Exception:  # noqa: BLE001
+        return
 
 
 def run_eval(args: argparse.Namespace) -> int:
@@ -138,6 +163,7 @@ def run_eval(args: argparse.Namespace) -> int:
         f"mean_energy={s['mean_energy']} food_left_mean={s['food_left_mean']}"
     )
     print(f"wall_time_s={s['wall_time_s']} hash={s['hash']}")
+    _print_param_count(args.policy, config_path, checkpoint)
 
     if args.out:
         out = Path(args.out)
