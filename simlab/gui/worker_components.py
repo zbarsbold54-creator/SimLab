@@ -25,9 +25,12 @@ class WorkerComponents:
             self.policy = None
         else:
             try:
-                self.policy = policy_type(seed=self.seed)
+                self.policy = policy_type(seed=self.seed, config=self.config)
             except TypeError:
-                self.policy = policy_type()
+                try:
+                    self.policy = policy_type(seed=self.seed)
+                except TypeError:
+                    self.policy = policy_type()
         drive_type = get("drive", self.config.drive)
         self.drive_core = drive_type() if drive_type else None
         if self.drive_core is not None:

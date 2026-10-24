@@ -31,6 +31,9 @@ class Runner:
             self._config.world.height,
             self._seed,
             food_regrow_rate=self._effective_regrow_rate(),
+            eat_dist=self._config.food.eat_dist,
+            max_turn_rate=self._config.agent.max_turn_rate,
+            speed_factor=self._config.agent.speed_factor,
         )
         self._step_count = 0
         self._max_steps = 100000
@@ -143,9 +146,12 @@ class Runner:
         policy_type = get("policy", self._config.policy)
         if policy_type is not None:
             try:
-                self._policy = policy_type(seed=self._seed)
+                self._policy = policy_type(seed=self._seed, config=self._config)
             except TypeError:
-                self._policy = policy_type()
+                try:
+                    self._policy = policy_type(seed=self._seed)
+                except TypeError:
+                    self._policy = policy_type()
         drive_type = get("drive", self._config.drive)
         if drive_type is not None:
             self._drive_core = drive_type()

@@ -27,6 +27,10 @@ class AgentConfig:
     move_cost: float = 1.0
     food_eat: float = 10.0
     count: int = 1
+    # Motor limits used to derive near-food thrust (rad/s and world units/step
+    # per thrust unit). Defaults match the historical hardcoded constants.
+    max_turn_rate: float = 3.0
+    speed_factor: float = 8.0
 
 
 @dataclass
@@ -46,6 +50,8 @@ class FoodConfig:
     max_food: int = 20
     regrow_rate: float = 0.0
     supply_ratio: float | None = None
+    # Radius within which an agent can eat a patch (world units).
+    eat_dist: float = 1.5
 
 
 @dataclass
@@ -111,6 +117,8 @@ class SimLabConfig:
                 move_cost=agent_data.get("move_cost", 1.0),
                 food_eat=agent_data.get("food_eat", 10.0),
                 count=agent_data.get("count", 1),
+                max_turn_rate=agent_data.get("max_turn_rate", 3.0),
+                speed_factor=agent_data.get("speed_factor", 8.0),
             ),
             hazard=HazardConfig(
                 damage_per_step=hazard_data.get("damage_per_step", 1.0),
@@ -122,6 +130,7 @@ class SimLabConfig:
                 max_food=food_data.get("max_food", 20),
                 regrow_rate=food_data.get("regrow_rate", 0.0),
                 supply_ratio=food_data.get("supply_ratio"),
+                eat_dist=food_data.get("eat_dist", 1.5),
             ),
             drive=components.get("drive", "simple"),
             retention=components.get("retention", "fixed_decay"),
@@ -145,6 +154,8 @@ class SimLabConfig:
                 "move_cost": self.agent.move_cost,
                 "food_eat": self.agent.food_eat,
                 "count": self.agent.count,
+                "max_turn_rate": self.agent.max_turn_rate,
+                "speed_factor": self.agent.speed_factor,
             },
             "hazard": {
                 "damage_per_step": self.hazard.damage_per_step,
@@ -155,6 +166,7 @@ class SimLabConfig:
                 "spawn_rate": self.food.spawn_rate,
                 "max_food": self.food.max_food,
                 "regrow_rate": self.food.regrow_rate,
+                "eat_dist": self.food.eat_dist,
                 **(
                     {"supply_ratio": self.food.supply_ratio}
                     if self.food.supply_ratio is not None

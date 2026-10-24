@@ -555,9 +555,11 @@ Root cause: the eat branch in `HeuristicPolicyNoflee._act` used thrust 0.6
 (v = 4.8, min turn radius r_min = v/omega_max = 4.8/3.0 = 1.6 > 1.5 eat range),
 so the agent could physically never get inside the true eat radius and eat never
 connected. Fix: eat branch uses thrust 0.4 and steer gain 60 (r_min = 1.067 <
-1.5). After fix: starved 7/20 -> 0/20 (13 truncation, 7 hazard). Rule check
-still passes (heuristic cap 75.0% at the [40,75] edge, random cap 0%, starved-
-with-food 0%, hazard deaths 25%): ALL PASS.
+1.5). After fix: starved 7/20 -> 0/20 (0 starvation, 8 hazard, 12 truncation,
+per `scripts/solo_eval.py`; an earlier prose note of "13 truncation / 7 hazard"
+was a miscount and is corrected here). Rule check still passes (heuristic cap
+75.0% at the [40,75] edge, random cap 0%, starved-with-food 0%, hazard deaths
+25%): ALL PASS.
 
 ### Step 3 - Solo preset and evaluation
 Added `configs/solo.toml` (1 agent, 1 hazard, else balanced/default values) and a
@@ -585,3 +587,72 @@ diagnosis and baseline", tagged `world-v1.1`.
 - The eat-branch fix (thrust 0.4 / steer gain 60) changes heuristic world
   dynamics, raising the 5-agent cap to the upper edge (75%) of the allowed
   window - worth monitoring in future reference runs.
+
+---
+
+## Round 6 - Baseline refresh with CIs
+
+Decisions: accept the 75% 5-agent cap (no retuning); do not implement
+hazard.per_agent; keep the eat-branch behavior but make it principled.
+
+### Step 1 - reproducibility names
+Registered pre-fix sensor/oracle heuristics as `heuristic_v2` / `oracle_v2`
+in `simlab/builtin/policies.py`. `heuristic_v2` reproduces the world-v1-era
+sensor heuristic (eat thrust 0.6, steer /135, with flee); `oracle_v2`
+reproduces the world-v1 oracle. The world-v1 table is covered by the
+`world-v1` tag (commit `4c105be`) and by `heuristic_v2` / `oracle_v2` in the
+current tree.
+
+### Step 2 - derive instead of hardcode
+Near-food thrust is now derived: `thrust = 0.7 * eat_dist * max_turn_rate /
+speed_factor` = 0.7 * 1.5 * 3.0 / 8.0 = 0.39375, used for all near-food
+branches (eat and close) of `heuristic` and `oracle`, reading the constants
+from config (`agent.max_turn_rate`, `agent.speed_factor`, `food.eat_dist`).
+Added `tests/test_heuristic_turn_radius.py`: for every principled heuristic
+min_turn_radius < eat_range, and it fails if thrust is reverted to 0.6
+(min radius 1.6 > 1.5). 5-agent Balanced cap before/after (20 seeds, rule
+check script): heuristic 75.0% -> 80.0% (hazard share 25% -> 20%). `heuristic_v2`
+reproduces the old 69.0% final-20-seed run exactly.
+
+### Step 3 - baseline refresh with CIs
+Rewrote `docs/BASELINES.md` with a 20-seed grid for {1, 5, 20} agents + Solo
+x {random, heuristic_noflee, heuristic, heuristic_v2}, 95% bootstrap CIs over
+seeds, median survival, death-cause split, mean food left, per-row commit hash
+and reproduce command. Grid produced by `scripts/baseline_refresh.py`
+(multiprocessing, one process per episode).
+
+Balanced 5 (cap% / CI / median / split / food_left):
+- random: 0.0% [0,0] / 3242 / (10,90,0) / 400.0
+- heuristic_noflee: 4.0% [1,8] / 1201 / (0,96,4) / 390.8
+- heuristic: 80.0% [71,88] / 10000 / (0,20,80) / 372.5
+- heuristic_v2: 69.0% [55,82] / 10000 / (4,27,69) / 363.6
+
+Solo (cap% / CI / median / split / food_left):
+- random: 0.0% [0,0] / 4198 / (4,16,0) / 400.0
+- heuristic_noflee: 25.0% [10,45] / 1240 / (0,15,5) / 376.8
+- heuristic: 50.0% [30,70] / 10000 / (0,10,10) / 380.0
+- heuristic_v2: 35.0% [15,55] / 6417 / (7,6,7) / 384.3
+
+### Step 4 - reconcile solo numbers
+The solo heuristic split is canonically 0 starvation / 8 hazard / 12 truncation
+(`scripts/solo_eval.py`, seeds 0..19). The "13 truncation / 7 hazard" that
+appeared in the round-5 prose was a miscount; the raw diag hazard-seed set
+{0,1,5,7,10,17,18,19} = 8 hazard matches the eval. PROGRESS.md round-5 prose
+corrected.
+
+### Step 5 - how-to-compare section
+Added to `docs/BASELINES.md` header: scenario rows to run, seed list
+(range(20)), metrics (cap% with CI, median survival, death-cause split), and
+the rule that a learned policy counts as better only if its CI does not overlap
+the heuristic's CI on the same cell.
+
+### Step 6 - full suite and ruff
+Full suite: 51 passed. Ruff: all checks passed. Committed as "Baseline refresh
+with CIs", tagged `world-v1.2`.
+
+### Still open
+- Derived thrust moves the 5-agent heuristic cap to 80.0% (CI [71,88]),
+  above the earlier accepted 75% edge; accepted per this round's decision, but
+  worth monitoring. The `heuristic_v2` frozen row remains at 69.0%.
+- Oracle policies remain "not an upper bound"; only reference.
+- `debug_test4.py` remains untracked scratch (not committed).

@@ -8,11 +8,15 @@ from simlab.core.types import Action
 from simlab.interfaces.policy import (
     HeuristicPolicy,
     HeuristicPolicyNoflee,
+    HeuristicPolicyV2,
     RandomPolicy,
+    _clamp,
+    derive_eat_thrust,
 )
 
 register("policy", "heuristic")(HeuristicPolicy)
 register("policy", "heuristic_noflee")(HeuristicPolicyNoflee)
+register("policy", "heuristic_v2")(HeuristicPolicyV2)
 register("policy", "random")(RandomPolicy)
 
 
@@ -20,11 +24,22 @@ class OracleHeuristicPolicyNoflee:
     """World-state heuristic without hazard fleeing (historic behavior)."""
 
     needs_observations = False
-    EAT_DIST = 1.5
     CLOSE_DIST = 5.0
     THRUST_SEEK = 0.8
-    THRUST_CLOSE = 0.5
     STEER_GAIN = 60.0
+
+    def __init__(self, seed: int = 0, config: Any = None) -> None:
+        food = getattr(config, "food", None)
+        agent = getattr(config, "agent", None)
+        self.eat_dist = float(getattr(food, "eat_dist", 1.5))
+        self.max_turn_rate = float(getattr(agent, "max_turn_rate", 3.0))
+        self.speed_factor = float(getattr(agent, "speed_factor", 8.0))
+        self.eat_thrust = derive_eat_thrust(
+            self.eat_dist, self.max_turn_rate, self.speed_factor
+        )
+        self.close_thrust = self.eat_thrust
+        self.eat_steer_divisor = self.STEER_GAIN
+        self.close_steer_divisor = self.STEER_GAIN
 
     def act(self, obs: Any, drive_state: Any = None) -> Action:
         return Action(0.0, 0.8, True)
@@ -55,13 +70,13 @@ class OracleHeuristicPolicyNoflee:
         delta = (desired - heading + math.pi) % (2 * math.pi) - math.pi
         dist2 = (position[0] - target[0]) ** 2 + (position[1] - target[1]) ** 2
         dist = math.sqrt(dist2)
-        if dist < self.EAT_DIST:
-            turn = max(-1.0, min(1.0, math.degrees(delta) / 135.0))
-            return Action(turn, 0.6, True, "heuristic")
+        if dist < self.eat_dist:
+            turn = _clamp(math.degrees(delta) / self.eat_steer_divisor)
+            return Action(turn, self.eat_thrust, True, "heuristic")
         if dist < self.CLOSE_DIST:
-            turn = max(-1.0, min(1.0, math.degrees(delta) / self.STEER_GAIN))
-            return Action(turn, self.THRUST_CLOSE, False, "heuristic")
-        turn = max(-1.0, min(1.0, math.degrees(delta) / 135.0))
+            turn = _clamp(math.degrees(delta) / self.close_steer_divisor)
+            return Action(turn, self.close_thrust, False, "heuristic")
+        turn = _clamp(math.degrees(delta) / 135.0)
         return Action(turn, self.THRUST_SEEK, False, "heuristic")
 
 
@@ -91,11 +106,26 @@ class OracleHeuristicPolicy(OracleHeuristicPolicyNoflee):
             desired = math.atan2(position[1] - hy, position[0] - hx)  # away
             heading = agent_state.get("heading", 0.0)
             delta = (desired - heading + math.pi) % (2 * math.pi) - math.pi
-            turn = max(-1.0, min(1.0, math.degrees(delta) / 135.0))
+            turn = _clamp(math.degrees(delta) / 135.0)
             return Action(turn, 0.8, False, "oracle_flee")
         return super().select_action(agent_state, world_state, available_actions, step)
+
+
+class OracleHeuristicPolicyV2(OracleHeuristicPolicy):
+    """World-state heuristic from the world-v1 era (pre principled-thrust).
+
+    Eat branch used thrust 0.6 with steer /135; close branch thrust 0.5.
+    Frozen for reproduction of the world-v1 baseline table.
+    """
+
+    def __init__(self, seed: int = 0, config: Any = None) -> None:
+        super().__init__(seed, config)
+        self.eat_thrust = 0.6
+        self.close_thrust = 0.5
+        self.eat_steer_divisor = 135.0
 
 
 register("policy", "oracle_noflee")(OracleHeuristicPolicyNoflee)
 register("policy", "oracle_heuristic")(OracleHeuristicPolicyNoflee)
 register("policy", "oracle")(OracleHeuristicPolicy)
+register("policy", "oracle_v2")(OracleHeuristicPolicyV2)

@@ -13,19 +13,49 @@ class Policy(Protocol):
     def act(self, obs: Any, drive_state: Any = None) -> Action: ...
 
 
+def _clamp(x: float) -> float:
+    return max(-1.0, min(1.0, x))
+
+
+def derive_eat_thrust(eat_dist, max_turn_rate, speed_factor) -> float:
+    """Thrust s.t. min turn radius v/omega_max <= 0.7 * eat_range.
+
+    A thrust above this lets the agent orbit a patch just outside eat range
+    and never connect. Defaults mirror the historical hardcoded constant.
+    """
+    if max_turn_rate <= 0.0 or speed_factor <= 0.0:
+        return 0.4
+    return (0.7 * float(eat_dist) * float(max_turn_rate)) / float(speed_factor)
+
+
 class HeuristicPolicyNoflee:
     """Sensor-based heuristic without hazard fleeing (historic behavior).
 
-    Uses only obs (rays + proprioception), no World access.
+    Uses only obs (rays + proprioception), no World access. Near-food thrust
+    is derived from the world's eat range and max turn rate (see
+    ``derive_eat_thrust``) rather than hardcoded.
     """
 
     needs_observations = True
 
-    EAT_DIST = 1.5
     CLOSE_DIST = 5.0
     THRUST_SEEK = 0.8
-    THRUST_CLOSE = 0.5
     STEER_GAIN = 60.0
+
+    def __init__(self, seed: int = 0, config: Any = None) -> None:
+        self._seed = seed
+        food = getattr(config, "food", None)
+        agent = getattr(config, "agent", None)
+        self.eat_dist = float(getattr(food, "eat_dist", 1.5))
+        self.max_turn_rate = float(getattr(agent, "max_turn_rate", 3.0))
+        self.speed_factor = float(getattr(agent, "speed_factor", 8.0))
+        self.eat_thrust = derive_eat_thrust(
+            self.eat_dist, self.max_turn_rate, self.speed_factor
+        )
+        # All near-food branches share the derived thrust and steering gain.
+        self.close_thrust = self.eat_thrust
+        self.eat_steer_divisor = self.STEER_GAIN
+        self.close_steer_divisor = self.STEER_GAIN
 
     @staticmethod
     def _best_food(rays, ray_types):
@@ -52,19 +82,17 @@ class HeuristicPolicyNoflee:
             (best_index - middle) * (270.0 / (count - 1)) if count > 1 else 0.0
         )
 
-        if best_dist < self.EAT_DIST:
-            # Keep the strong steering and decelerate so the minimum turning
-            # radius (v / omega_max) stays below the 1.5 eat range. The old
-            # thrust 0.6 gave v = 4.8 -> min radius 1.6 > 1.5, so the agent
-            # could orbit just outside eat range forever and never connect.
-            turn = max(-1.0, min(1.0, offset_deg / self.STEER_GAIN))
-            return Action(turn, 0.4, True, "heuristic")
+        if best_dist < self.eat_dist:
+            # Decelerate so the minimum turning radius (v / omega_max) stays
+            # below the eat range; otherwise the agent orbits just outside it.
+            turn = _clamp(offset_deg / self.eat_steer_divisor)
+            return Action(turn, self.eat_thrust, True, "heuristic")
         if best_dist < self.CLOSE_DIST:
-            # Near food: steer harder and ease off so the agent converges
-            # instead of orbiting the patch just outside eat range.
-            turn = max(-1.0, min(1.0, offset_deg / self.STEER_GAIN))
-            return Action(turn, self.THRUST_CLOSE, False, "heuristic")
-        turn = max(-1.0, min(1.0, offset_deg / 135.0))
+            # Near food: steer toward it and ease off to converge instead of
+            # orbiting just outside eat range.
+            turn = _clamp(offset_deg / self.close_steer_divisor)
+            return Action(turn, self.close_thrust, False, "heuristic")
+        turn = _clamp(offset_deg / 135.0)
         return Action(turn, self.THRUST_SEEK, False, "heuristic")
 
     def act(self, obs: Any, drive_state: Any = None) -> Action:
@@ -107,6 +135,20 @@ class HeuristicPolicy(HeuristicPolicyNoflee):
                 turn = max(-1.0, min(1.0, -offset_deg / 135.0))
             return Action(turn, 0.8, False, "heuristic_flee")
         return self._act(obs)
+
+
+class HeuristicPolicyV2(HeuristicPolicy):
+    """Sensor heuristic from the world-v1 era (pre round-5 eat fix).
+
+    Eat branch used thrust 0.6 with steer /135; close branch thrust 0.5.
+    Frozen for reproduction of the world-v1 baseline table.
+    """
+
+    def __init__(self, seed: int = 0, config: Any = None) -> None:
+        super().__init__(seed, config)
+        self.eat_thrust = 0.6
+        self.close_thrust = 0.5
+        self.eat_steer_divisor = 135.0
 
 
 class RandomPolicy:

@@ -34,6 +34,9 @@ class World:
         seed: int = 0,
         dt: float = 0.1,
         food_regrow_rate: float = 0.0,
+        eat_dist: float = 1.5,
+        max_turn_rate: float = 3.0,
+        speed_factor: float = 8.0,
     ) -> None:
         self.width = float(width)
         self.height = float(height)
@@ -46,6 +49,9 @@ class World:
         self._metadata: dict[str, Any] = {}
         self._step_count = 0
         self.food_regrow_rate = float(food_regrow_rate)
+        self.eat_dist = float(eat_dist)
+        self.max_turn_rate = float(max_turn_rate)
+        self.speed_factor = float(speed_factor)
 
     @property
     def agents(self) -> MappingProxyType:
@@ -183,10 +189,10 @@ class World:
                 patch["amount"] = min(max_amount, patch["amount"] + rate)
 
     def _move_agent(self, state: dict[str, Any], action: Action) -> None:
-        state["heading"] = (state["heading"] + action.turn * 3.0 * self.dt) % (
-            2.0 * math.pi
-        )
-        state["speed"] = action.thrust * 8.0
+        state["heading"] = (
+            state["heading"] + action.turn * self.max_turn_rate * self.dt
+        ) % (2.0 * math.pi)
+        state["speed"] = action.thrust * self.speed_factor
         x, y = state["position"]
         state["position"] = self._clamp_point(
             (
@@ -232,7 +238,7 @@ class World:
         for patch in self._food_patches:
             dx = state["position"][0] - patch["position"][0]
             dy = state["position"][1] - patch["position"][1]
-            if patch["amount"] <= 0.0 or dx * dx + dy * dy > 2.25:
+            if patch["amount"] <= 0.0 or dx * dx + dy * dy > self.eat_dist**2:
                 continue
             available = min(patch["amount"], state["max_energy"] - state["energy"])
             if available <= 0.0:
@@ -310,7 +316,7 @@ class World:
                 (
                     energy / state["max_energy"],
                     state["health"] / 100.0,
-                    state["speed"] / 8.0,
+                    state["speed"] / self.speed_factor,
                 ),
                 tuple(state["position"]),
                 energy,
@@ -352,6 +358,9 @@ class World:
                 {
                     "seed": self._seed,
                     "food_regrow_rate": self.food_regrow_rate,
+                    "eat_dist": self.eat_dist,
+                    "max_turn_rate": self.max_turn_rate,
+                    "speed_factor": self.speed_factor,
                     **copy.deepcopy(self._metadata),
                 }
             ),
@@ -379,10 +388,14 @@ class World:
         self._rng = SimRNG(0)
         self._rng.state = thaw(snapshot.rng_state)
         self.food_regrow_rate = float(snapshot.metadata.get("food_regrow_rate", 0.0))
+        self.eat_dist = float(snapshot.metadata.get("eat_dist", 1.5))
+        self.max_turn_rate = float(snapshot.metadata.get("max_turn_rate", 3.0))
+        self.speed_factor = float(snapshot.metadata.get("speed_factor", 8.0))
         self._metadata = {
             key: thaw(value)
             for key, value in snapshot.metadata.items()
-            if key not in ("seed", "food_regrow_rate")
+            if key
+            not in ("seed", "food_regrow_rate", "eat_dist", "max_turn_rate", "speed_factor")
         }
 
     def state_hash(self) -> str:
