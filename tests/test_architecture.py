@@ -17,7 +17,7 @@ from simlab.training.encoding import encode_observation
 from simlab.training.torch_policy import make_policy
 
 REPO = Path(__file__).resolve().parents[1]
-LEGACY_CKPT = REPO / "logs" / "train_smoke" / "final.pt"
+LEGACY_CKPT = REPO / "tests" / "fixtures" / "learner_v0_final.pt"
 BACKWARD_COMPAT_HASH = "d3e1532311768f52"
 
 DRIVE_CORES = ("none", "constant", "rda8")
