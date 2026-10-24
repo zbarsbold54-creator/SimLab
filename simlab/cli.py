@@ -50,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     trainp.add_argument("--arch", default=None)
     trainp.add_argument("--out", required=True)
     trainp.add_argument("--eval-every", type=int, default=20)
+    trainp.add_argument("--profile", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "run":
         return run_simulation(args.steps, args.seed)
@@ -212,6 +213,7 @@ def run_train(args: argparse.Namespace) -> int:
         workers=args.workers,
         seed=args.seed,
         eval_every=args.eval_every,
+        profile=args.profile,
     )
     if args.arch:
         from simlab.training.arch_spec import load_arch_toml

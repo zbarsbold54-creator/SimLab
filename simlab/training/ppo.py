@@ -49,6 +49,10 @@ class PPOConfig:
     # Optional architecture selection (as emitted by the GUI panel / train
     # --arch TOML). When set, it overrides obs_mode/backbone/fusion.
     arch: dict[str, Any] | None = None
+    # When True, the trainer records wall-clock shares per phase and prints a
+    # profile summary at the end. Off by default; timing overhead is excluded
+    # from the default training path.
+    profile: bool = False
 
 
 def _build_net(cfg: PPOConfig):
@@ -77,6 +81,12 @@ class _WorkerEnv:
         self.cfg = cfg
         self.rank = rank
         self.seed = TRAIN_SEED_BASE + rank * 1000
+        self._prof = cfg.profile
+        if self._prof:
+            self._t_env = 0.0
+            self._t_inf = 0.0
+            self._t_oth = 0.0
+            self._n_steps = 0
         self._encode = encode_observation
         base = load_config(cfg.config_path)
         self.max_energy = float(base.agent.initial_energy)
@@ -148,7 +158,10 @@ class _WorkerEnv:
                     }
                 )
 
+        prof = self._prof
         for _ in range(self.cfg.env_steps_per_rollout):
+            if prof:
+                t0 = time.perf_counter()
             obs_batch = self.world._observation_batch()
             live = [aid for aid, st in self.world._agents.items() if st["is_alive"]]
             if live:
@@ -158,6 +171,9 @@ class _WorkerEnv:
             for i, aid in enumerate(live):
                 drives_x = tuple(float(v) for v in drive_vals[i]) if self.cfg.obs_mode == "obs_drives" else None
                 xs.append(self._encode(obs_batch[aid], drives_x))
+            if prof:
+                self._t_env += time.perf_counter() - t0
+                t0 = time.perf_counter()
             if live:
                 X = torch.from_numpy(np.stack(xs)).float()
                 Hb = torch.stack([self._hidden[aid] for aid in live])
@@ -166,6 +182,9 @@ class _WorkerEnv:
                     logp, _ = self.policy.evaluate_batch(X, Hb, turn, thrust, eat.float())
                 for j, aid in enumerate(live):
                     self._hidden[aid] = f[j]
+            if prof:
+                self._t_inf += time.perf_counter() - t0
+                t0 = time.perf_counter()
             if not live:
                 continue
             actions = {
@@ -225,10 +244,23 @@ class _WorkerEnv:
                 for aid in list(cur):
                     _finalize(aid)
                 self._reset_episode()
+            if prof:
+                self._t_oth += time.perf_counter() - t0
+                self._n_steps += 1
 
         for aid in list(cur):
             _finalize(aid)
         return segments
+
+    def _profile_dict(self) -> dict[str, float] | None:
+        if not self._prof:
+            return None
+        return {
+            "env": self._t_env,
+            "inference": self._t_inf,
+            "other": self._t_oth,
+            "n_steps": self._n_steps,
+        }
 
 
 def _rollout_worker(rank: int, cfg: PPOConfig, task_q: mp.Queue, result_q: mp.Queue) -> None:
@@ -247,7 +279,9 @@ def _rollout_worker(rank: int, cfg: PPOConfig, task_q: mp.Queue, result_q: mp.Qu
         except Exception as exc:  # noqa: BLE001
             result_q.put({"error": f"{type(exc).__name__}: {exc}"})
             continue
-        result_q.put({"rank": rank, "segments": segs})
+        result_q.put(
+            {"rank": rank, "segments": segs, "profile": env._profile_dict()}
+        )
 
 
 class PPOTrainer:
@@ -292,10 +326,24 @@ class PPOTrainer:
     def _collect(self) -> list[dict[str, Any]]:
         results = [self._result_q.get() for _ in self._procs]
         segs: list[dict[str, Any]] = []
+        prof = self.cfg.profile
+        t_env = t_inf = t_oth = 0.0
         for res in results:
             if "error" in res:
                 raise RuntimeError(f"worker error: {res['error']}")
             segs.extend(res["segments"])
+            if prof:
+                p = res.get("profile")
+                if p:
+                    t_env += p["env"]
+                    t_inf += p["inference"]
+                    t_oth += p["other"]
+        if prof:
+            self._collect_prof = {
+                "env": t_env,
+                "inference": t_inf,
+                "other": t_oth,
+            }
         return segs
 
     def _schedule_lr(self, it: int) -> None:
@@ -312,6 +360,9 @@ class PPOTrainer:
         eat = np.concatenate([s["eat"] for s in segments])
         old_logp = np.concatenate([s["logp"] for s in segments])
 
+        prof = self.cfg.profile
+        if prof:
+            t_gae0 = time.perf_counter()
         adv = np.zeros_like(old_logp)
         ret = np.zeros_like(old_logp)
         idx = 0
@@ -331,6 +382,9 @@ class PPOTrainer:
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
         ret_t = t.from_numpy(ret).float()
+        if prof:
+            t_gae = time.perf_counter() - t_gae0
+            t_up0 = time.perf_counter()
 
         chunk_starts = []
         idx = 0
@@ -431,6 +485,12 @@ class PPOTrainer:
                 loss.backward()
                 self.opt.step()
 
+        if prof:
+            self._update_prof = {
+                "gae": t_gae,
+                "update": time.perf_counter() - t_up0,
+            }
+
         return {
             "mean_return": float(ret_t.mean().item()),
             "entropy": total_ent / max(1, total_n),
@@ -507,12 +567,46 @@ class PPOTrainer:
             encoding="utf-8",
         )
         env_steps = 0
+        prof = self.cfg.profile
+        if prof:
+            acc = {
+                "broadcast": 0.0,
+                "collect": 0.0,
+                "gae": 0.0,
+                "update": 0.0,
+                "schedule": 0.0,
+                "env": 0.0,
+                "inference": 0.0,
+                "worker_other": 0.0,
+            }
+            t_wall = time.perf_counter()
         for it in range(self.iterations):
+            if prof:
+                t0 = time.perf_counter()
             self._broadcast()
+            if prof:
+                acc["broadcast"] += time.perf_counter() - t0
+                t0 = time.perf_counter()
             trajs = self._collect()
+            if prof:
+                acc["collect"] += time.perf_counter() - t0
+                cpf = getattr(self, "_collect_prof", None)
+                if cpf:
+                    acc["env"] += cpf["env"]
+                    acc["inference"] += cpf["inference"]
+                    acc["worker_other"] += cpf["other"]
+                t0 = time.perf_counter()
             env_steps += self.cfg.workers * self.cfg.env_steps_per_rollout
             info = self._ppo_update(trajs)
+            if prof:
+                upf = getattr(self, "_update_prof", None)
+                if upf:
+                    acc["gae"] += upf["gae"]
+                    acc["update"] += upf["update"]
+                t0 = time.perf_counter()
             self._schedule_lr(it)
+            if prof:
+                acc["schedule"] += time.perf_counter() - t0
             row = {
                 "iteration": it,
                 "env_steps": env_steps,
@@ -531,4 +625,33 @@ class PPOTrainer:
                 self._quick_eval(it)
         self._save_checkpoint(self.out_dir / "final.pt")
         self.stop()
+        if prof:
+            serial = acc["broadcast"] + acc["collect"] + acc["gae"] + acc["update"] + acc["schedule"]
+            acc["other"] = max(0.0, (time.perf_counter() - t_wall) - serial)
+            self._print_profile(acc, env_steps)
         logger.info("training finished at iteration=%d env_steps=%d", self.iterations - 1, env_steps)
+
+    def _print_profile(
+        self, acc: dict[str, float], env_steps: int
+    ) -> None:
+        total = sum(acc[k] for k in ("broadcast", "collect", "gae", "update", "schedule", "other"))
+        total = total if total > 0 else 1e-9
+        print("=== PPO profile (wall clock) ===")
+        rows = [
+            ("broadcast", acc["broadcast"]),
+            ("IPC/collect wait", acc["collect"]),
+            ("GAE (CPU)", acc["gae"]),
+            ("PPO update (torch)", acc["update"]),
+            ("lr schedule", acc["schedule"]),
+            ("other", acc["other"]),
+        ]
+        for name, secs in rows:
+            print(f"{name:<22} {secs:8.2f}s  {100.0 * secs / total:5.1f}%")
+        print(f"total run wall-time         {total:8.2f}s  env steps/s = {env_steps / total:.1f}")
+        # Worker-side split (parallel across N workers) within the rollout window.
+        wsum = acc["env"] + acc["inference"] + acc["worker_other"]
+        wsum = wsum if wsum > 0 else 1e-9
+        print("=== worker rollout split (sum over workers) ===")
+        print(f"env stepping / obs prep      {100.0 * acc['env'] / wsum:5.1f}%")
+        print(f"policy inference             {100.0 * acc['inference'] / wsum:5.1f}%")
+        print(f"bookkeeping / other         {100.0 * acc['worker_other'] / wsum:5.1f}%")

@@ -982,3 +982,33 @@ All checks passed!
 heuristic: vs heuristic BETTER  (eval --compare, no STALE)
 smoke train --arch -> runs\smoke_train
 ```
+
+## Phase 9 — PPO training profile (perf-v0)
+
+Status: profiling complete; option changes committed as `perf-v0`. GPU step
+skipped (CPU-only torch installed).
+
+- `simlab/training/ppo.py`: `PPOConfig.profile` (default False). When set, the
+  trainer records wall-clock shares per phase (broadcast, IPC/collect wait,
+  GAE, PPO update, lr schedule, other) and a worker-side split (env stepping /
+  policy inference / bookkeeping), printed at the end. Default path unchanged.
+- `simlab/cli.py`: `train --profile` flag (off by default).
+- No CUDA torch installed (`torch 2.14.1+cpu`, build cuda None); GPU is an
+  RTX 5060 Ti (Blackwell, compute 12.0), so the GPU-update step (STEP 4) was
+  not run and no `--update-device` option was added. No wheels installed.
+
+Measurements (obs_only, Balanced 5, seed 100000, 18432 env steps):
+
+```text
+workers   wall(s)   env steps/s   PPO update%   IPC/collect%   GAE%
+4         18.42     1000.6        58.2          39.7           0.3
+6         17.85     1032.4        63.1          34.5           0.3
+8         18.17     1014.3        63.5          33.8           0.3
+```
+Worker split (4w): env stepping 40.7%, policy inference 40.8%, bookkeeping
+18.6%. The PPO torch update dominates wall time; the learner is the bottleneck,
+not rollout workers. Worker-sweep checkpoints diverge (expected: different
+worker count changes iteration count and RNG stream usage).
+
+Recommended: 6 workers; keep update on CPU (GPU split not beneficial at this
+scale given update-bound profile and no CUDA torch installed).
