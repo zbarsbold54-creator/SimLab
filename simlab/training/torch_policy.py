@@ -247,6 +247,11 @@ class TorchPolicy:
     def parameters(self):
         return self._backbone._net.parameters()
 
+    def to(self, device: str):
+        """Move the underlying net to ``device`` (e.g. ``"cuda"``)."""
+        self._backbone._net.to(device)
+        return self
+
     def net_state_dict(self) -> dict[str, Any]:
         return self._backbone._net.state_dict()
 

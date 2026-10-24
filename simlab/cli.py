@@ -51,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     trainp.add_argument("--out", required=True)
     trainp.add_argument("--eval-every", type=int, default=20)
     trainp.add_argument("--profile", action="store_true")
+    trainp.add_argument("--update-threads", type=int, default=None)
+    trainp.add_argument("--update-device", choices=["cpu", "cuda"], default="cpu")
     args = parser.parse_args(argv)
     if args.command == "run":
         return run_simulation(args.steps, args.seed)
@@ -214,6 +216,8 @@ def run_train(args: argparse.Namespace) -> int:
         seed=args.seed,
         eval_every=args.eval_every,
         profile=args.profile,
+        update_threads=args.update_threads,
+        update_device=args.update_device,
     )
     if args.arch:
         from simlab.training.arch_spec import load_arch_toml

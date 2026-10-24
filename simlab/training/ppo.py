@@ -53,6 +53,14 @@ class PPOConfig:
     # profile summary at the end. Off by default; timing overhead is excluded
     # from the default training path.
     profile: bool = False
+    # Optional torch intra-op thread count for the learner process during the
+    # PPO update only. When None (default), the torch default is left
+    # untouched (behavior-identical). Rollout workers always run with 1 thread.
+    update_threads: int | None = None
+    # Device used for the PPO update phase. Rollouts always run on CPU and
+    # workers keep CPU copies of the policy; only forward/backward/optimizer
+    # run on the update device. Defaults to "cpu" (behavior-identical).
+    update_device: str = "cpu"  # "cpu" | "cuda"
 
 
 def _build_net(cfg: PPOConfig):
@@ -385,6 +393,11 @@ class PPOTrainer:
         if prof:
             t_gae = time.perf_counter() - t_gae0
             t_up0 = time.perf_counter()
+            t_build = 0.0
+            t_fwd = 0.0
+            t_bwd = 0.0
+            t_opt = 0.0
+            n_minibatches = 0
 
         chunk_starts = []
         idx = 0
@@ -395,6 +408,13 @@ class PPOTrainer:
             idx += L
         chunk_starts = np.asarray(chunk_starts)
         n_chunks = len(chunk_starts)
+
+        use_cuda = self.cfg.update_device == "cuda"
+        dev = "cuda" if use_cuda else "cpu"
+        opt = self.opt
+        if use_cuda:
+            self.policy.to("cuda")
+            opt = t.optim.Adam(self.policy.parameters(), lr=self.cfg.lr0)
 
         eps = self.cfg.clip
         S = self.cfg.seq_len
@@ -412,6 +432,8 @@ class PPOTrainer:
                 if not cids:
                     continue
                 B = len(cids)
+                if prof:
+                    t0 = time.perf_counter()
                 xs_b = np.zeros((B, S, xs.shape[1]), dtype=np.float32)
                 turn_b = np.zeros((B, S), dtype=np.float32)
                 thrust_b = np.zeros((B, S), dtype=np.float32)
@@ -440,12 +462,19 @@ class PPOTrainer:
                 advb = t.from_numpy(adv_b)
                 retb = t.from_numpy(ret_b)
                 maskb = t.from_numpy(mask_b)
+                if use_cuda:
+                    Xb, turnb, thrustb, eatb, oldb, advb, retb, maskb = (
+                        x.to(dev) for x in (Xb, turnb, thrustb, eatb, oldb, advb, retb, maskb)
+                    )
+                if prof:
+                    t_build += time.perf_counter() - t0
+                    t0 = time.perf_counter()
 
-                h = t.zeros((B, self.policy.hidden_size))
-                pol_loss = t.zeros((), dtype=t.float32)
-                val_loss = t.zeros((), dtype=t.float32)
-                ent_loss = t.zeros((), dtype=t.float32)
-                kl_loss = t.zeros((), dtype=t.float32)
+                h = t.zeros((B, self.policy.hidden_size), device=dev)
+                pol_loss = t.zeros((), dtype=t.float32, device=dev)
+                val_loss = t.zeros((), dtype=t.float32, device=dev)
+                ent_loss = t.zeros((), dtype=t.float32, device=dev)
+                kl_loss = t.zeros((), dtype=t.float32, device=dev)
                 std_t = t.exp(self.policy.log_std_turn)
                 std_th = t.exp(self.policy.log_std_thrust)
                 for si in range(S):
@@ -474,6 +503,8 @@ class PPOTrainer:
                     ent_loss = ent_loss + ((ent_turn + ent_thrust + ent_eat) * m).sum()
                     kl_loss = kl_loss + ((oldb[:, si] - logp) * m).sum()
                     h = f
+                if prof:
+                    t_fwd += time.perf_counter() - t0
                 n = int(maskb.sum().item())
                 total_n += n
                 total_pol += float(pol_loss.item())
@@ -481,14 +512,33 @@ class PPOTrainer:
                 total_ent += float(ent_loss.item())
                 total_kl += float(kl_loss.item())
                 loss = pol_loss + 0.5 * val_loss - self.cfg.entropy_coef * ent_loss
-                self.opt.zero_grad()
+                opt.zero_grad()
+                if prof:
+                    t_bwd0 = time.perf_counter()
                 loss.backward()
-                self.opt.step()
+                if prof:
+                    t_bwd += time.perf_counter() - t_bwd0
+                    t_opt0 = time.perf_counter()
+                opt.step()
+                if prof:
+                    t_opt += time.perf_counter() - t_opt0
+                    n_minibatches += 1
+
+        if use_cuda:
+            self.policy.to("cpu")
 
         if prof:
+            t_up = time.perf_counter() - t_up0
             self._update_prof = {
                 "gae": t_gae,
-                "update": time.perf_counter() - t_up0,
+                "update": t_up,
+                "build": t_build,
+                "forward": t_fwd,
+                "backward": t_bwd,
+                "optimizer": t_opt,
+                "n_minibatches": n_minibatches,
+                "epochs": self.cfg.ppo_epochs,
+                "seq_len": S,
             }
 
         return {
@@ -574,10 +624,16 @@ class PPOTrainer:
                 "collect": 0.0,
                 "gae": 0.0,
                 "update": 0.0,
+                "build": 0.0,
+                "forward": 0.0,
+                "backward": 0.0,
+                "optimizer": 0.0,
                 "schedule": 0.0,
                 "env": 0.0,
                 "inference": 0.0,
                 "worker_other": 0.0,
+                "updates": 0,
+                "minibatches": 0,
             }
             t_wall = time.perf_counter()
         for it in range(self.iterations):
@@ -597,12 +653,20 @@ class PPOTrainer:
                     acc["worker_other"] += cpf["other"]
                 t0 = time.perf_counter()
             env_steps += self.cfg.workers * self.cfg.env_steps_per_rollout
+            if self.cfg.update_threads is not None:
+                self.torch.set_num_threads(self.cfg.update_threads)
             info = self._ppo_update(trajs)
             if prof:
                 upf = getattr(self, "_update_prof", None)
                 if upf:
                     acc["gae"] += upf["gae"]
                     acc["update"] += upf["update"]
+                    acc["build"] += upf["build"]
+                    acc["forward"] += upf["forward"]
+                    acc["backward"] += upf["backward"]
+                    acc["optimizer"] += upf["optimizer"]
+                    acc["updates"] += 1
+                    acc["minibatches"] += upf["n_minibatches"]
                 t0 = time.perf_counter()
             self._schedule_lr(it)
             if prof:
@@ -647,6 +711,27 @@ class PPOTrainer:
         ]
         for name, secs in rows:
             print(f"{name:<22} {secs:8.2f}s  {100.0 * secs / total:5.1f}%")
+        update_total = acc["update"] if acc["update"] > 0 else 1e-9
+        print("=== PPO update breakdown (within update) ===")
+        urows = [
+            ("tensor build/copy", acc["build"]),
+            ("forward (GRU unroll)", acc["forward"]),
+            ("backward", acc["backward"]),
+            ("optimizer step", acc["optimizer"]),
+        ]
+        for name, secs in urows:
+            print(f"{name:<22} {secs:8.2f}s  {100.0 * secs / update_total:5.1f}%")
+        print(
+            f"updates={acc['updates']} minibatches={acc['minibatches']} "
+            f"epochs={self.cfg.ppo_epochs} seq_len={self.cfg.seq_len} "
+            f"minibatch_chunks={self.cfg.minibatch_chunks}"
+        )
+        print(f"torch.get_num_threads(learner)={self.torch.get_num_threads()}")
+        print(
+            "env OMP_NUM_THREADS="
+            f"{__import__('os').environ.get('OMP_NUM_THREADS', '<unset>')} "
+            f"MKL_NUM_THREADS={__import__('os').environ.get('MKL_NUM_THREADS', '<unset>')}"
+        )
         print(f"total run wall-time         {total:8.2f}s  env steps/s = {env_steps / total:.1f}")
         # Worker-side split (parallel across N workers) within the rollout window.
         wsum = acc["env"] + acc["inference"] + acc["worker_other"]

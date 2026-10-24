@@ -1012,3 +1012,36 @@ worker count changes iteration count and RNG stream usage).
 
 Recommended: 6 workers; keep update on CPU (GPU split not beneficial at this
 scale given update-bound profile and no CUDA torch installed).
+
+## Phase 10 - PPO training speedup (perf-v1)
+
+Status: Part A (CPU) diagnostics complete; Part B (CUDA venv) measured. Default
+training device stays CPU (`--update-device` defaults to `cpu`); behavior on
+the default path is unchanged (full suite 86 passed, ruff clean).
+
+- `simlab/training/ppo.py`: `PPOConfig.update_threads` (int|None, default None)
+  and `PPOConfig.update_device` ("cpu"/"cuda", default "cpu"). Refined the
+  update profile into tensor-build / forward / backward / optimizer with
+  counts. `--update-threads N` calls `torch.set_num_threads(N)` in the learner
+  only for the update phase. `--update-device cuda` moves the policy net to
+  CUDA for the update and back to CPU after (opt-in; default cpu).
+- `simlab/cli.py`: train `--update-threads`, `--update-device`.
+- `simlab/training/torch_policy.py`: added `TorchPolicy.to(device)` (moves the
+  underlying net) so the cuda-update path can transfer weights.
+- Part B1: created `.venv-cuda` (ignored) with official CUDA 12.8 torch build;
+  verified torch 2.11.0+cu128, RTX 5060 Ti (sm_120), matmul + GRU fwd/bwd.
+- Part B2/B3: cuda update is ~5x SLOWER than cpu at this scale (small-batch
+  kernel launch + per-step unroll + device sync); not worth keeping. Two cuda
+  runs with same seed are not bit-identical (pre-existing cross-run
+  nondeterminism, magnitude ~6e-2, first divergence in log_std_turn).
+
+Measured (obs_only, Balanced 5, seed 100000, 20480 env steps, 4 workers,
+OMP/MKL=1):
+
+```text
+config                  update s   total wall s   env steps/s
+cpu (N=1, default)      12.32       32.50         630.1
+cuda                    59.78       80.37         254.8
+```
+
+Recommended: CPU update with default threads (N=1); GPU split not worth keeping.
