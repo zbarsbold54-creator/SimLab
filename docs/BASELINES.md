@@ -128,6 +128,7 @@ refreshed grid; see Policy notes.
 | Oracle heuristic (with flee) | `oracle` | no |
 | Oracle heuristic (no flee) | `oracle_noflee` (alias `oracle_heuristic`) | no |
 | Oracle heuristic v1-era (frozen) | `oracle_v2` | no |
+| Oracle avoid (upper-bound probe) | `oracle_avoid` | no |
 
 `heuristic_v2` / `oracle_v2` freeze the world-v1-era control law (eat thrust
 0.6, steer /135) so the pre-refresh baseline table remains reproducible; the
@@ -138,3 +139,38 @@ Oracles read world state directly and are **not an upper bound**: in this
 environment the sensor heuristic consistently out-survives the oracle because
 direct world-state gaze does not avoid the dominant hazard deaths once energy is
 tight. The oracle policies are kept for reference/reproducibility only.
+
+## Oracle upper-bound probe (`oracle_avoid`)
+
+`oracle_avoid` is a reference (not a baseline) policy: it forages like the
+sensor heuristic but (a) targets food that is not within the detection radius of
+any hazard when possible, (b) when a hazard is within detection radius plus a
+margin, flees at thrust 1.0 away from a vector combining all hazard positions
+(not only the nearest), preferring tangential escape near walls and pushing out
+of corners, and (c) never idles within a hazard's detection radius. It reads
+world state directly (needs_observations = False). It is an upper-bound probe
+used to ask whether the Hard scenario has headroom to measure a better policy.
+
+Escape physics (Hard config): hazard speed 2.0 units/s; agent max speed at
+thrust 1.0 is 8.0 units/s (4x, so a single straight-line chase can be outrun);
+sensor-heuristic flee thrust 0.8 gives 6.4 units/s (3.2x). The binding limit is
+wall/corner trapping, not raw speed: baseline hazard-death traces show agents
+pinned at a boundary while the hazard parks on top (distance -> 0).
+
+5-agent results (20 seeds, cap 10000, bootstrap CIs over seeds):
+
+| Scenario | Policy | cap% | CI | median | starve | hazard | trunc | food_left |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Balanced | oracle_avoid | 54.0 | [45.0, 64.0] | 10000 | 46 | 0 | 54 | 361.8 |
+| Hard | oracle_avoid | 74.0 | [63.0, 85.0] | 10000 | 24 | 2 | 74 | 345.9 |
+
+Verdict (Hard 5): `oracle_avoid` is **BETTER** than `heuristic` (CI [63, 85]
+does not overlap [32, 60]), so headroom exists and the Hard benchmark is
+meaningful. On Balanced 5 the heuristic already saturates (80%), so oracle_avoid
+is WORSE there (its hazard avoidance reduces feeding and adds starvation) —
+Balanced is not the discriminating cell. Reproduce each cell with:
+
+```
+python -m simlab.cli eval --policy oracle_avoid --scenario hard --agents 5 --seeds 20 --cap 10000 --workers 4 --compare
+python -m simlab.cli eval --policy oracle_avoid --scenario balanced --agents 5 --seeds 20 --cap 10000 --workers 4 --compare
+```

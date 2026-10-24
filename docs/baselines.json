@@ -1,6 +1,6 @@
 {
-  "commit": "f205ec5",
-  "generated": "2026-10-24T01:37:00.951724+00:00",
+  "commit": "be9c1aa",
+  "generated": "2026-10-24T01:52:50.001214+00:00",
   "scenarios": {
     "balanced_1": {
       "agents": 1,
@@ -52,6 +52,21 @@
           "food_left_mean": 391.703,
           "median": 4449,
           "policy_hash": "8bdcebec1666c553"
+        },
+        "oracle_avoid": {
+          "cap_pct": 45.0,
+          "ci": [
+            20.0,
+            70.0
+          ],
+          "death_cause": {
+            "hazard": 0,
+            "starvation": 11,
+            "truncation": 9
+          },
+          "food_left_mean": 366.575,
+          "median": 9888,
+          "policy_hash": "6a6938a660c3ec05"
         },
         "random": {
           "cap_pct": 0.0,
@@ -121,6 +136,21 @@
           "median": 10000,
           "policy_hash": "8bdcebec1666c553"
         },
+        "oracle_avoid": {
+          "cap_pct": 48.25,
+          "ci": [
+            37.75,
+            58.25
+          ],
+          "death_cause": {
+            "hazard": 0,
+            "starvation": 207,
+            "truncation": 193
+          },
+          "food_left_mean": 359.801,
+          "median": 9176,
+          "policy_hash": "6a6938a660c3ec05"
+        },
         "random": {
           "cap_pct": 0.0,
           "ci": [
@@ -188,6 +218,21 @@
           "food_left_mean": 363.594,
           "median": 10000,
           "policy_hash": "8bdcebec1666c553"
+        },
+        "oracle_avoid": {
+          "cap_pct": 54.0,
+          "ci": [
+            45.0,
+            64.0
+          ],
+          "death_cause": {
+            "hazard": 0,
+            "starvation": 46,
+            "truncation": 54
+          },
+          "food_left_mean": 361.819,
+          "median": 10000,
+          "policy_hash": "6a6938a660c3ec05"
         },
         "random": {
           "cap_pct": 0.0,
@@ -257,6 +302,21 @@
           "median": 1804,
           "policy_hash": "8bdcebec1666c553"
         },
+        "oracle_avoid": {
+          "cap_pct": 80.0,
+          "ci": [
+            65.0,
+            95.0
+          ],
+          "death_cause": {
+            "hazard": 1,
+            "starvation": 3,
+            "truncation": 16
+          },
+          "food_left_mean": 348.559,
+          "median": 10000,
+          "policy_hash": "6a6938a660c3ec05"
+        },
         "random": {
           "cap_pct": 0.0,
           "ci": [
@@ -324,6 +384,21 @@
           "food_left_mean": 385.523,
           "median": 10000,
           "policy_hash": "8bdcebec1666c553"
+        },
+        "oracle_avoid": {
+          "cap_pct": 40.5,
+          "ci": [
+            35.75,
+            45.0
+          ],
+          "death_cause": {
+            "hazard": 12,
+            "starvation": 226,
+            "truncation": 162
+          },
+          "food_left_mean": 347.879,
+          "median": 7850,
+          "policy_hash": "6a6938a660c3ec05"
         },
         "random": {
           "cap_pct": 0.0,
@@ -393,6 +468,21 @@
           "median": 4250,
           "policy_hash": "8bdcebec1666c553"
         },
+        "oracle_avoid": {
+          "cap_pct": 74.0,
+          "ci": [
+            63.0,
+            85.0
+          ],
+          "death_cause": {
+            "hazard": 2,
+            "starvation": 24,
+            "truncation": 74
+          },
+          "food_left_mean": 345.903,
+          "median": 10000,
+          "policy_hash": "6a6938a660c3ec05"
+        },
         "random": {
           "cap_pct": 0.0,
           "ci": [
@@ -460,6 +550,21 @@
           "food_left_mean": 384.323,
           "median": 6417,
           "policy_hash": "8bdcebec1666c553"
+        },
+        "oracle_avoid": {
+          "cap_pct": 25.0,
+          "ci": [
+            5.0,
+            45.0
+          ],
+          "death_cause": {
+            "hazard": 0,
+            "starvation": 15,
+            "truncation": 5
+          },
+          "food_left_mean": 372.691,
+          "median": 7767,
+          "policy_hash": "6a6938a660c3ec05"
         },
         "random": {
           "cap_pct": 0.0,

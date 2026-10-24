@@ -760,6 +760,39 @@ preset. Eval CLI determinism re-verified: two balanced_5 runs -> identical hash
 1c6ac660695fa7d7. Full suite: 59 passed (20.45s). Ruff: all checks passed.
 Committed as "Hazard-based Hard scenario", tagged `world-v1.4`.
 
+## Round 9 - Achievability check (`world-v1.5`)
+
+### Step 1 - escape physics
+`scripts/escape_physics.py` (new): hazard speed 2.0 units/s (=0.2 units/step,
+heading snaps to nearest live agent inside detection radius); agent max speed at
+thrust 1.0 = 8.0 units/s; sensor-heuristic flee thrust 0.8 -> 6.4 units/s;
+agent max turn rate 3.0 rad/s; derived near-food thrust 0.3937; contact damage
+0.1 health/step (1000 steps to kill from full health). Straight-line agent/hazard
+ratio 4x, so a chase CAN be outrun. Traces for the first 5 Hard hazard-death
+agents: each is pinned at a wall/corner (position forced to (0,0) or (0,50)),
+the hazard parks on top (distance -> 0), and the flee branch keeps pushing into
+the boundary -> wall/corner trapping is the binding limit, not raw speed.
+
+### Step 2 - `oracle_avoid` upper-bound probe
+`simlab/builtin/policies.py` `OracleHeuristicAvoid` (124 lines, registered
+`"oracle_avoid"`, world-state, needs_observations=False). Forages to food not
+within a hazard's detection radius when possible; flees at thrust 1.0 away from
+the vector sum of all hazard positions (tangential near walls, pushes out of
+corners); never idles in a hazard's detection radius. Smoke-tested (1000-step
+run). Documented in docs/BASELINES.md as an upper-bound probe, not a baseline.
+
+### Step 3 - evaluation and verdict
+`scripts/baseline_refresh.py` grid extended with `oracle_avoid`; docs/baselines.json
+regenerated (config + policy hashes). Eval CLI `--compare`, 20 seeds, cap 10000:
+Hard 5 oracle_avoid cap 74% [63,85] vs heuristic 46% [32,60] -> **BETTER**,
+headroom exists, Hard is winnable. Balanced 5 oracle_avoid 54% vs heuristic 80%
+-> WORSE (heuristic already saturates; avoidance adds starvation). Determinism:
+rerun identical hash 7fdec01770fce33b.
+
+### Step 4 - suite, ruff, docs
+Full suite 59 passed; ruff clean; PROGRESS.md and docs/BASELINES.md updated.
+Committed as "Achievability check", tagged `world-v1.5`.
+
 ### Still open
 - Safe-spawn (spawn_clearance) not implemented - gate not met (deaths not
   mostly early).

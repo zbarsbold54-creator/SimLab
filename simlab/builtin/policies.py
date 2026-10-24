@@ -125,7 +125,127 @@ class OracleHeuristicPolicyV2(OracleHeuristicPolicy):
         self.eat_steer_divisor = 135.0
 
 
+class OracleHeuristicAvoid(OracleHeuristicPolicyNoflee):
+    """World-state upper-bound probe that actively avoids hazards.
+
+    Reference only - not a baseline and not claimed optimal. It forages like
+    the sensor heuristic but (a) prefers food targets outside any hazard's
+    detection radius, (b) when a hazard is within detection radius plus a
+    margin, flees at thrust 1.0 along a direction derived from ALL hazards,
+    sliding tangentially along walls and pushing out of corners, and (c) never
+    idles inside a hazard's detection radius.
+    """
+
+    needs_observations = False
+    FLEE_THRUST = 1.0
+    FLEE_MARGIN = 4.0
+    WALL_MARGIN = 8.0
+
+    def __init__(self, seed: int = 0, config: Any = None) -> None:
+        super().__init__(seed, config)
+        hazard = getattr(config, "hazard", None)
+        world = getattr(config, "world", None)
+        self.hazard_detection = float(
+            getattr(hazard, "detection_radius", 30.0)
+        )
+        self.arena_w = float(getattr(world, "width", 50.0))
+        self.arena_h = float(getattr(world, "height", 50.0))
+
+    def _danger_zone(self, position: tuple[float, float], hazards) -> bool:
+        r = self.hazard_detection + self.FLEE_MARGIN
+        r2 = r * r
+        return any(
+            (h[0] - position[0]) ** 2 + (h[1] - position[1]) ** 2 <= r2
+            for h in hazards
+        )
+
+    def _select_food(self, position, food, hazards):
+        r = self.hazard_detection + self.FLEE_MARGIN
+        r2 = r * r
+        safe = []
+        unsafe = []
+        for target, amount in food:
+            if amount <= 0.0:
+                continue
+            d2 = (target[0] - position[0]) ** 2 + (
+                target[1] - position[1]
+            ) ** 2
+            risky = any(
+                (h[0] - target[0]) ** 2 + (h[1] - target[1]) ** 2 <= r2
+                for h in hazards
+            )
+            (unsafe if risky else safe).append((d2, target))
+        if safe:
+            return min(safe, key=lambda s: s[0])[1]
+        if unsafe:
+            return min(unsafe, key=lambda s: s[0])[1]
+        return None
+
+    def _escape_dir(self, position, hazards) -> tuple[float, float]:
+        vx = 0.0
+        vy = 0.0
+        for h in hazards:
+            dx = position[0] - h[0]
+            dy = position[1] - h[1]
+            d = max(math.hypot(dx, dy), 1e-6)
+            w = 1.0 / (d * d)
+            vx += dx / d * w
+            vy += dy / d * w
+        n = math.hypot(vx, vy)
+        ux = vx / n if n > 1e-9 else 0.0
+        uy = vy / n if n > 1e-9 else 0.0
+        if position[0] < self.WALL_MARGIN and ux < 0.0:
+            ux = 0.0
+        if self.arena_w - position[0] < self.WALL_MARGIN and ux > 0.0:
+            ux = 0.0
+        if position[1] < self.WALL_MARGIN and uy < 0.0:
+            uy = 0.0
+        if self.arena_h - position[1] < self.WALL_MARGIN and uy > 0.0:
+            uy = 0.0
+        n2 = math.hypot(ux, uy)
+        if n2 > 1e-9:
+            return ux / n2, uy / n2
+        dx = self.arena_w / 2.0 - position[0]
+        dy = self.arena_h / 2.0 - position[1]
+        n3 = math.hypot(dx, dy)
+        if n3 > 1e-9:
+            return dx / n3, dy / n3
+        return 0.0, 0.0
+
+    def select_action(
+        self,
+        agent_state: dict[str, Any],
+        world_state: dict[str, Any],
+        available_actions: list[Any],
+        step: int,
+    ) -> Action:
+        position = agent_state.get("position", (0.0, 0.0))
+        heading = agent_state.get("heading", 0.0)
+        hazards = world_state.get("hazard_locations", [])
+        if self._danger_zone(position, hazards):
+            ux, uy = self._escape_dir(position, hazards)
+            desired = math.atan2(uy, ux)
+            delta = (desired - heading + math.pi) % (2 * math.pi) - math.pi
+            turn = _clamp(math.degrees(delta) / 135.0)
+            return Action(turn, self.FLEE_THRUST, False, "oracle_avoid_flee")
+        target = self._select_food(position, world_state.get("food_patches", []), hazards)
+        if target is None:
+            return Action(0.25, 0.5, False, "oracle_avoid_wander")
+        desired = math.atan2(target[1] - position[1], target[0] - position[0])
+        delta = (desired - heading + math.pi) % (2 * math.pi) - math.pi
+        dist = math.hypot(target[0] - position[0], target[1] - position[1])
+        if dist < self.eat_dist:
+            turn = _clamp(math.degrees(delta) / self.eat_steer_divisor)
+            return Action(turn, self.eat_thrust, True, "oracle_avoid_eat")
+        if dist < self.CLOSE_DIST:
+            turn = _clamp(math.degrees(delta) / self.close_steer_divisor)
+            return Action(turn, self.close_thrust, False, "oracle_avoid_close")
+        turn = _clamp(math.degrees(delta) / 135.0)
+        return Action(turn, self.THRUST_SEEK, False, "oracle_avoid_seek")
+
+
 register("policy", "oracle_noflee")(OracleHeuristicPolicyNoflee)
 register("policy", "oracle_heuristic")(OracleHeuristicPolicyNoflee)
 register("policy", "oracle")(OracleHeuristicPolicy)
 register("policy", "oracle_v2")(OracleHeuristicPolicyV2)
+register("policy", "oracle_avoid")(OracleHeuristicAvoid)

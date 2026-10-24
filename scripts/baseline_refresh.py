@@ -36,7 +36,13 @@ SCENARIOS = [
     ("hard_5", "Hard 5", str(REPO / "configs/hard.toml"), 5),
     ("hard_20", "Hard 20", str(REPO / "configs/hard.toml"), 20),
 ]
-POLICIES = ["random", "heuristic_noflee", "heuristic", "heuristic_v2"]
+POLICIES = [
+    "random",
+    "heuristic_noflee",
+    "heuristic",
+    "heuristic_v2",
+    "oracle_avoid",
+]
 
 
 def worker(task: tuple[str, str, int, int]) -> dict[str, Any]:
