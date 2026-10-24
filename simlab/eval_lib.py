@@ -9,6 +9,7 @@ Results are hashed deterministically for reproducibility checks.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -31,6 +32,40 @@ def scenario_baseline_key(scenario: str, agents: int) -> str:
     if scenario == "solo":
         return "solo"
     return f"{scenario}_{agents}"
+
+
+def resolved_config_hash(config_path: str, agents: int) -> str:
+    """Canonical hash of the resolved scenario config (incl. agent count)."""
+    base = load_config(config_path)
+    cfg = replace(base, agent=replace(base.agent, count=agents))
+    return hashlib.sha256(
+        json.dumps(cfg.to_dict(), sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def policy_source_hash(policy_name: str) -> str:
+    """Hash the source files defining a registered policy and its bases."""
+    from simlab.core.registry import get
+
+    cls = get("policy", policy_name)
+    if cls is None:
+        return hashlib.sha256(policy_name.encode("utf-8")).hexdigest()[:16]
+    files: list[str] = []
+    seen: set[str] = set()
+
+    def walk(klass: type[Any]) -> None:
+        mod = inspect.getmodule(klass)
+        file = getattr(mod, "__file__", None)
+        if file is not None and file not in seen:
+            seen.add(file)
+            files.append(file)
+        for base in klass.__bases__:
+            walk(base)
+
+    walk(cls)
+    files.sort()
+    blob = b"".join(Path(f).read_bytes() for f in files)
+    return hashlib.sha256(blob).hexdigest()[:16]
 
 
 def run_episode_metrics(
@@ -186,22 +221,52 @@ def aggregate(results: list[dict[str, Any]], wall_time: float, cap: int) -> dict
 
 
 def compare_to_baselines(
-    agg: dict[str, Any], baseline_key: str, baseline_path: Path
-) -> list[dict[str, str]]:
-    """Verdicts against the docs/baselines.json reference table."""
-    verdicts = []
+    agg: dict[str, Any],
+    baseline_key: str,
+    baseline_path: Path,
+    config_path: str,
+    agents: int,
+    policy: str,
+    allow_stale: bool = False,
+) -> dict[str, Any]:
+    """Verdicts against the docs/baselines.json reference table.
+
+    Verifies the current scenario config hash and policy source hash match what
+    the baseline stored. If either is stale and ``allow_stale`` is False, the
+    verdicts are refused (empty list) and the stale reasons are returned.
+    """
     if not baseline_path.exists():
-        return [{"against": "baselines.json", "verdict": "MISSING BASELINES FILE"}]
+        return {
+            "stale": [],
+            "verdicts": [{"against": "baselines.json", "verdict": "MISSING BASELINES FILE"}],
+        }
     doc = json.loads(baseline_path.read_text(encoding="utf-8"))
     scenario = doc.get("scenarios", {}).get(baseline_key)
     if not scenario:
-        return [{"against": baseline_key, "verdict": "MISSING SCENARIO BASELINE"}]
+        return {
+            "stale": [],
+            "verdicts": [{"against": baseline_key, "verdict": "MISSING SCENARIO BASELINE"}],
+        }
+
+    current_config_hash = resolved_config_hash(config_path, agents)
+    current_policy_hash = policy_source_hash(policy)
+    stale: list[str] = []
+    if scenario.get("config_hash") != current_config_hash:
+        stale.append(f"config hash differs for {baseline_key}")
+    ref = scenario.get("policies", {}).get(policy)
+    if ref is not None and ref.get("policy_hash") != current_policy_hash:
+        stale.append(f"policy source hash differs for {policy}")
+
+    if stale and not allow_stale:
+        return {"stale": stale, "verdicts": []}
+
+    verdicts = []
     lo, hi = agg["ci"]
     for ref_name in ("random", "heuristic_noflee", "heuristic"):
-        ref = scenario.get("policies", {}).get(ref_name)
-        if not ref:
+        r = scenario.get("policies", {}).get(ref_name)
+        if not r:
             continue
-        ref_lo, ref_hi = ref["ci"]
+        ref_lo, ref_hi = r["ci"]
         if lo > ref_hi:
             verdict = "BETTER"
         elif hi < ref_lo:
@@ -209,4 +274,4 @@ def compare_to_baselines(
         else:
             verdict = "NOT DISTINGUISHABLE"
         verdicts.append({"against": ref_name, "verdict": verdict})
-    return verdicts
+    return {"stale": stale, "verdicts": verdicts}

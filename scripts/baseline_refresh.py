@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from episode_lib import run_episode, summarize
 
+from simlab.eval_lib import policy_source_hash, resolved_config_hash
+
 REPO = Path(__file__).resolve().parents[1]
 
 SEEDS = 20
@@ -47,7 +49,7 @@ def worker(task: tuple[str, str, int, int]) -> dict[str, Any]:
     return {"seed": seed, "classes": classes, "deaths": deaths, "food_left": food_left}
 
 
-def json_entry(s: dict[str, Any]) -> dict[str, Any]:
+def json_entry(s: dict[str, Any], policy: str) -> dict[str, Any]:
     return {
         "cap_pct": round(s["cap_pct"], 3),
         "ci": [round(s["ci"][0], 3), round(s["ci"][1], 3)],
@@ -58,6 +60,7 @@ def json_entry(s: dict[str, Any]) -> dict[str, Any]:
             "truncation": int(s["trunc"]),
         },
         "food_left_mean": round(s["food_left_mean"], 3),
+        "policy_hash": policy_source_hash(policy),
     }
 
 
@@ -86,7 +89,7 @@ def main() -> None:
             rows = results[idx: idx + SEEDS]
             idx += SEEDS
             s = summarize(rows)
-            policies[policy] = json_entry(s)
+            policies[policy] = json_entry(s, policy)
             print(
                 f"{label:<14}{policy:<18}"
                 f"{s['cap_pct']:6.1f}%  "
@@ -99,6 +102,7 @@ def main() -> None:
             "label": label,
             "agents": agents,
             "config": str(Path(config_path).relative_to(REPO)).replace("\\", "/"),
+            "config_hash": resolved_config_hash(config_path, agents),
             "policies": policies,
         }
 

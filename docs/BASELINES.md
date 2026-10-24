@@ -73,27 +73,27 @@ detection radius 16, `supply_ratio = 2.0`). 20 seeds, cap 10000.
 
 ## Hard scenario (`configs/hard.toml`)
 
-Hard = Balanced with `supply_ratio = 0.8` (a food-constrained regime: the same
-hazard detection radius 16, same arena and food count, but a smaller effective
-regrowth budget, so leftover food is lower). Chosen from a supply-ratio sweep
-at 5 agents (see `scripts/hard_sweep.py`): all swept ratios left the heuristic
-cap at 80% with zero starvation, so 0.8 was selected as the most food-
-constrained option that still avoids starvation. 20 seeds, cap 10000.
+Hard = Balanced with a denser hazard field: `hazard.count = 12` (3x the
+nominal 4), same detection radius 16, same arena and food count, `supply_ratio
+= 2.0` (unchanged). Chosen from a hazard-count sweep at 5 agents (see
+`scripts/hazard_hard_sweep.py`) so the sensor heuristic cap lands near 50%
+while random stays under 5%, leaving headroom to measure a better policy.
+20 seeds, cap 10000.
 
 | Policy | Agents | cap% | CI | median | starve | hazard | trunc | food_left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| random | 1 | 0.0 | [0.0, 0.0] | 1886 | 0 | 20 | 0 | 400.0 |
-| heuristic_noflee | 1 | 0.0 | [0.0, 0.0] | 662 | 0 | 20 | 0 | 386.2 |
-| heuristic | 1 | 25.0 | [10.0, 45.0] | 6774 | 0 | 15 | 5 | 347.7 |
-| heuristic_v2 | 1 | 20.0 | [5.0, 40.0] | 4449 | 2 | 14 | 4 | 358.1 |
-| random | 5 | 0.0 | [0.0, 0.0] | 3242 | 10 | 90 | 0 | 400.0 |
-| heuristic_noflee | 5 | 4.0 | [1.0, 8.0] | 1201 | 0 | 96 | 4 | 356.9 |
-| heuristic | 5 | 80.0 | [71.0, 88.0] | 10000 | 0 | 20 | 80 | 258.0 |
-| heuristic_v2 | 5 | 68.0 | [53.0, 81.0] | 10000 | 7 | 25 | 68 | 243.1 |
-| random | 20 | 0.0 | [0.0, 0.0] | 4264 | 189 | 211 | 0 | 400.0 |
-| heuristic_noflee | 20 | 8.2 | [4.8, 12.2] | 4138 | 3 | 364 | 33 | 391.5 |
-| heuristic | 20 | 91.0 | [88.2, 94.0] | 10000 | 3 | 33 | 364 | 272.5 |
-| heuristic_v2 | 20 | 85.8 | [80.5, 90.5] | 10000 | 0 | 57 | 343 | 190.1 |
+| random | 1 | 0.0 | [0.0, 0.0] | 728 | 0 | 20 | 0 | 400.0 |
+| heuristic_noflee | 1 | 0.0 | [0.0, 0.0] | 432 | 0 | 20 | 0 | 394.2 |
+| heuristic | 1 | 5.0 | [0.0, 15.0] | 4237 | 0 | 19 | 1 | 388.5 |
+| heuristic_v2 | 1 | 0.0 | [0.0, 0.0] | 1804 | 0 | 20 | 0 | 389.5 |
+| random | 5 | 0.0 | [0.0, 0.0] | 1372 | 0 | 100 | 0 | 400.0 |
+| heuristic_noflee | 5 | 0.0 | [0.0, 0.0] | 643 | 0 | 100 | 0 | 395.2 |
+| heuristic | 5 | 46.0 | [32.0, 60.0] | 9110 | 0 | 54 | 46 | 381.9 |
+| heuristic_v2 | 5 | 26.0 | [15.0, 39.0] | 4250 | 0 | 74 | 26 | 385.7 |
+| random | 20 | 0.0 | [0.0, 0.0] | 2508 | 11 | 389 | 0 | 400.0 |
+| heuristic_noflee | 20 | 0.2 | [0.0, 0.8] | 1726 | 0 | 399 | 1 | 399.9 |
+| heuristic | 20 | 71.0 | [62.0, 79.5] | 10000 | 0 | 116 | 284 | 397.9 |
+| heuristic_v2 | 20 | 72.0 | [63.0, 80.5] | 10000 | 0 | 112 | 288 | 385.5 |
 
 ## Reproduction
 
@@ -105,13 +105,13 @@ cap%, CI, median, death-cause counts, food left, seeds, cap, commit, date).
 
 | Row | Command | Commit |
 | --- | --- | --- |
-| Balanced 1 | `python scripts/baseline_refresh.py` | `world-v1.3` |
-| Balanced 5 | `python scripts/baseline_refresh.py` | `world-v1.3` |
-| Balanced 20 | `python scripts/baseline_refresh.py` | `world-v1.3` |
-| Solo | `python scripts/baseline_refresh.py` | `world-v1.3` |
-| Hard 1 | `python scripts/baseline_refresh.py` | `world-v1.3` |
-| Hard 5 | `python scripts/baseline_refresh.py` | `world-v1.3` |
-| Hard 20 | `python scripts/baseline_refresh.py` | `world-v1.3` |
+| Balanced 1 | `python scripts/baseline_refresh.py` | `world-v1.4` |
+| Balanced 5 | `python scripts/baseline_refresh.py` | `world-v1.4` |
+| Balanced 20 | `python scripts/baseline_refresh.py` | `world-v1.4` |
+| Solo | `python scripts/baseline_refresh.py` | `world-v1.4` |
+| Hard 1 | `python scripts/baseline_refresh.py` | `world-v1.4` |
+| Hard 5 | `python scripts/baseline_refresh.py` | `world-v1.4` |
+| Hard 20 | `python scripts/baseline_refresh.py` | `world-v1.4` |
 
 Policies used: `random`, `heuristic_noflee`, `heuristic`, `heuristic_v2` (the
 pre-principled-thrust sensor heuristic). Oracle policies are excluded from the

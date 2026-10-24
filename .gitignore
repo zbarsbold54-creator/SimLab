@@ -20,3 +20,6 @@ prove_evolution.py
 collected.txt
 failure1.txt
 _*.txt
+
+results/
+

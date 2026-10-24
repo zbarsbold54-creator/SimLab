@@ -39,6 +39,28 @@ def test_balanced_preset_loads_into_scenario(app: QApplication) -> None:
     app.processEvents()
 
 
+def test_hard_config_has_hazard_count() -> None:
+    cfg = load_config("configs/hard.toml")
+    assert cfg.hazard.count == 12
+    assert cfg.hazard.detection_radius == 16.0
+    assert cfg.food.supply_ratio == 2.0
+
+
+def test_hard_preset_loads_into_scenario(app: QApplication) -> None:
+    window = MainWindow(seed=7, agent_count=5)
+    window.worker.set_playing(False)
+    window.show()
+    window.scenario.preset.setCurrentText("Hard")
+    window.scenario.apply()
+    cfg = window._config
+    assert cfg.hazard.count == 12
+    assert cfg.hazard.detection_radius == 16.0
+    assert cfg.food.supply_ratio == 2.0
+    assert cfg.agent.count == 5
+    window.close()
+    app.processEvents()
+
+
 def test_balanced_determinism() -> None:
     cfg = load_config("configs/balanced.toml")
     hashes = []

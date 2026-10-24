@@ -34,11 +34,14 @@ def run_episode(
     radius: float | None = None,
     regrow_rate: float | None = None,
     supply_ratio: float | None = None,
+    hazard_count: int | None = None,
 ) -> tuple[dict[str, dict[str, Any]], float]:
     base = load_config(config_path)
     cfg = replace(base, policy=policy, agent=replace(base.agent, count=agents))
     if radius is not None:
         cfg = replace(cfg, hazard=replace(cfg.hazard, detection_radius=float(radius)))
+    if hazard_count is not None:
+        cfg = replace(cfg, hazard=replace(cfg.hazard, count=int(hazard_count)))
     if regrow_rate is not None:
         cfg = replace(cfg, food=replace(cfg.food, regrow_rate=regrow_rate))
     if supply_ratio is not None:

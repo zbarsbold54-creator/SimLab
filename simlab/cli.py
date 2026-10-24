@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     evalp.add_argument("--workers", type=int, default=4)
     evalp.add_argument("--out", default=None)
     evalp.add_argument("--compare", action="store_true")
+    evalp.add_argument("--allow-stale", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "run":
         return run_simulation(args.steps, args.seed)
@@ -111,7 +112,20 @@ def run_eval(args: argparse.Namespace) -> int:
     if args.compare:
         baseline = REPO / "docs" / "baselines.json"
         key = scenario_baseline_key(args.scenario, args.agents)
-        for entry in compare_to_baselines(agg, key, baseline):
+        res = compare_to_baselines(
+            agg,
+            key,
+            baseline,
+            config_path,
+            args.agents,
+            args.policy,
+            args.allow_stale,
+        )
+        for reason in res["stale"]:
+            print(f"STALE: {reason}")
+        if res["stale"] and not args.allow_stale:
+            print("refusing verdicts (baselines out of date); use --allow-stale to override")
+        for entry in res["verdicts"]:
             print(f"vs {entry['against']:<18}: {entry['verdict']}")
     return 0
 

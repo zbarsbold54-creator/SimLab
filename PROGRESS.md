@@ -709,7 +709,61 @@ and Hard scenario", tagged `world-v1.3`.
 - The Hard preset cannot be made substantially harder by supply_ratio alone:
   the 5-agent heuristic cap stays at 80% (hazard-bound). A harder benchmark
   would need a different hazard regime, not food scaling.
-- `results/heuristic_balanced_5.json` is a committed eval artifact; other
+- `docs/examples/heuristic_balanced_5.json` is a committed eval artifact; other
   `results/*.json` scratch files were deleted. `results/` is not gitignored.
 - Baselines in `docs/baselines.json` are generated at commit time and cite the
   tag `world-v1.3`; a later commit would need a refresh to update the hash.
+
+## Round 8 - Hazard-based Hard scenario (world-v1.4)
+
+Decisions: harder benchmark through hazards (not food); gitignore results/;
+self-validating baselines.
+
+### Step 1 - identical 20 hazard deaths diagnosed
+`scripts/hazard_death_diag.py` (Balanced 5-agent, 20 seeds): the same seed set
+dies by hazard at every supply_ratio (0.8/1.0/1.2/1.5). Deaths are bimodal
+(11/20 before step 3000, 9/20 after), every hazard-death agent has very high
+contact counts (250-1001) and 50-100% flee fraction in the final 200 steps.
+Conclusion: NOT mostly-early spawn luck; sustained hazard chase / flee failure.
+Because the gate was "add safe-spawn only if deaths are mostly early", the
+spawn_clearance rule was intentionally NOT implemented.
+
+### Step 2 - hazard-based Hard preset
+`scripts/hazard_hard_sweep.py` (5 agents, supply_ratio 2.0, 20 seeds, cap
+10000, heuristic + random): hazard count 4->80%, 6->68%, 8->67%, 12->46%
+[32,60], 16->41%; random 0% always. Picked hazard count 12 (closest to 50%
+within the 35-65% band). Rewrote `configs/hard.toml` as count=12,
+supply_ratio=2.0, detection_radius=16, regrow_rate=0.0. The "Hard" preset
+(file-based) re-points automatically. Removed the old supply_ratio=0.8 hard.
+
+### Step 3 - self-validating baselines
+`simlab/eval_lib.py`: added `resolved_config_hash(config_path, agents)` and
+`policy_source_hash(policy_name)` (SHA256 first 16 hex); `compare_to_baselines`
+now returns {"stale": [...], "verdicts": [...]} and refuses verdicts when stale
+unless allow_stale. `scripts/baseline_refresh.py` stores config_hash per
+scenario and policy_hash per policy in docs/baselines.json. `simlab/cli.py`
+eval gained `--allow-stale` and prints STALE + refusal. Added
+tests/test_baseline_selfval.py (4 tests). CLI demonstration: changing
+detection_radius to 17 made balanced_5 stale and verdicts refused; --allow-stale
+bypassed (verdicts BETTER/BETTER/NOT DISTINGUISHABLE). Config restored after.
+
+### Step 4 - gitignore and example move
+Added `results/` to .gitignore. `git mv results/heuristic_balanced_5.json` ->
+docs/examples/heuristic_balanced_5.json (mkdir docs/examples first). PROGRESS.md
+reference updated.
+
+### Step 5 - baseline regeneration, suite, ruff
+`scripts/baseline_refresh.py` regenerated docs/baselines.json + printed tables
+(now with config_hash/policy_hash). Hard 5: heuristic cap 46% [32,60] median
+9110, random 0%. docs/BASELINES.md Hard section updated to the hazard-based
+preset. Eval CLI determinism re-verified: two balanced_5 runs -> identical hash
+1c6ac660695fa7d7. Full suite: 59 passed (20.45s). Ruff: all checks passed.
+Committed as "Hazard-based Hard scenario", tagged `world-v1.4`.
+
+### Still open
+- Safe-spawn (spawn_clearance) not implemented - gate not met (deaths not
+  mostly early).
+- Hazard-death agents show sustained chase / flee failure (contact counts
+  250-1001, 50-100% flee fraction). Flee instinct never overtakes pursuit.
+- The "Hard" preset is hazard-bound (12 hazards); food supply scaling is at
+  supply_ratio 2.0.
