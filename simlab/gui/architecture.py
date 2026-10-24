@@ -134,7 +134,7 @@ class ArchitectureWidget(QWidget):
         self._drive_widgets: dict[str, QWidget] = {}
         self._checkpoint_path: str | None = None
         self._selection: dict[str, Any] = {
-            "backbone": "gru",
+            "backbone": self._default_name("backbone"),
             "drive_core": "none",
             "fusion": "concat",
             "obs_mode": "obs_only",
@@ -226,9 +226,16 @@ class ArchitectureWidget(QWidget):
         self._errors = scan_plugin_dir(arch_dir())
         self.error_list.clear()
         self.error_list.addItems(self._errors or ["No plugin errors"])
-        self._populate_combo(self.backbone, list_specs("backbone"), "gru")
+        self._populate_combo(
+            self.backbone, list_specs("backbone"), self._default_name("backbone")
+        )
         self._populate_combo(self.drive, list_specs("drive_core"), "none")
         self._rebuild_forms()
+
+    @staticmethod
+    def _default_name(kind: str) -> str:
+        names = list_specs(kind)
+        return names[0] if names else ""
 
     @staticmethod
     def _populate_combo(combo: QComboBox, names: list[str], default: str) -> None:
@@ -345,7 +352,9 @@ class ArchitectureWidget(QWidget):
         self.drive.blockSignals(True)
         self.fusion.blockSignals(True)
         self.obs_mode.blockSignals(True)
-        self.backbone.setCurrentText(selection.get("backbone", "gru"))
+        self.backbone.setCurrentText(
+            selection.get("backbone", self._default_name("backbone"))
+        )
         self.drive.setCurrentText(selection.get("drive_core", "none"))
         self.fusion.setCurrentText(selection.get("fusion", "concat"))
         self.obs_mode.setCurrentText(selection.get("obs_mode", "obs_only"))

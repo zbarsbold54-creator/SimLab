@@ -241,12 +241,18 @@ def compare_to_baselines(
     allow_stale: bool = False,
     seed_set: str | None = None,
     checkpoint: str | Path | None = None,
+    cap: int | None = None,
+    seeds: list[int] | None = None,
 ) -> dict[str, Any]:
     """Verdicts against the docs/baselines.json reference table.
 
     Verifies the current scenario config hash and policy source hash match what
     the baseline stored. If either is stale and ``allow_stale`` is False, the
     verdicts are refused (empty list) and the stale reasons are returned.
+
+    When ``cap``/``seeds`` are supplied, the run is first checked to be
+    comparable with the stored baseline (same step cap and seed list). A
+    mismatch returns ``not_comparable`` and no verdicts.
     """
     if not baseline_path.exists():
         return {
@@ -256,6 +262,22 @@ def compare_to_baselines(
             ],
         }
     doc = json.loads(baseline_path.read_text(encoding="utf-8"))
+
+    comparability: list[str] = []
+    ref_cap = doc.get("step_cap")
+    if cap is not None and ref_cap is not None and cap != ref_cap:
+        comparability.append(f"cap {cap} != baseline {ref_cap}")
+    ref_seeds = None
+    if seed_set is not None:
+        ref_seeds = doc.get("seed_sets", {}).get(seed_set, {}).get("seed_list")
+    if seeds is not None and ref_seeds is not None and list(seeds) != list(ref_seeds):
+        comparability.append("seed list differs from baseline")
+    if comparability:
+        return {
+            "stale": [],
+            "verdicts": [],
+            "not_comparable": "; ".join(comparability),
+        }
     scenarios = doc.get("scenarios")
     if scenarios is None and seed_set is not None:
         scenarios = doc.get("seed_sets", {}).get(seed_set, {}).get("scenarios")

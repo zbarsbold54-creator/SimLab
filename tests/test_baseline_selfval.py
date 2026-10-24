@@ -105,3 +105,72 @@ def test_allow_stale_bypasses_refusal(tmp_path) -> None:
     )
     assert res["stale"]
     assert len(res["verdicts"]) == 3
+
+
+def test_mismatched_cap_is_not_comparable(tmp_path) -> None:
+    baseline = tmp_path / "baselines.json"
+    _write_fake_baseline(
+        baseline, resolved_config_hash(BALANCED, 5), policy_source_hash("heuristic")
+    )
+    doc = json.loads(baseline.read_text(encoding="utf-8"))
+    doc["step_cap"] = 10000
+    baseline.write_text(json.dumps(doc), encoding="utf-8")
+    res = compare_to_baselines(
+        _agg(),
+        "balanced_5",
+        baseline,
+        BALANCED,
+        5,
+        "heuristic",
+        cap=2000,
+    )
+    assert "not_comparable" in res
+    assert "cap 2000 != baseline 10000" in res["not_comparable"]
+    assert res["verdicts"] == []
+
+
+def test_mismatched_seeds_is_not_comparable(tmp_path) -> None:
+    baseline = tmp_path / "baselines.json"
+    _write_fake_baseline(
+        baseline, resolved_config_hash(BALANCED, 5), policy_source_hash("heuristic")
+    )
+    doc = json.loads(baseline.read_text(encoding="utf-8"))
+    doc["seed_sets"] = {"dev": {"seed_list": list(range(20))}}
+    baseline.write_text(json.dumps(doc), encoding="utf-8")
+    res = compare_to_baselines(
+        _agg(),
+        "balanced_5",
+        baseline,
+        BALANCED,
+        5,
+        "heuristic",
+        seed_set="dev",
+        seeds=[0],
+    )
+    assert "not_comparable" in res
+    assert "seed list differs" in res["not_comparable"]
+    assert res["verdicts"] == []
+
+
+def test_matching_compare_is_comparable_and_emits_verdicts(tmp_path) -> None:
+    baseline = tmp_path / "baselines.json"
+    _write_fake_baseline(
+        baseline, resolved_config_hash(BALANCED, 5), policy_source_hash("heuristic")
+    )
+    doc = json.loads(baseline.read_text(encoding="utf-8"))
+    doc["step_cap"] = 10000
+    doc["seed_sets"] = {"dev": {"seed_list": list(range(20))}}
+    baseline.write_text(json.dumps(doc), encoding="utf-8")
+    res = compare_to_baselines(
+        _agg(),
+        "balanced_5",
+        baseline,
+        BALANCED,
+        5,
+        "heuristic",
+        seed_set="dev",
+        cap=10000,
+        seeds=list(range(20)),
+    )
+    assert "not_comparable" not in res
+    assert len(res["verdicts"]) == 3

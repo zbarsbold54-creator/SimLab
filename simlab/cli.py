@@ -186,7 +186,12 @@ def run_eval(args: argparse.Namespace) -> int:
             args.allow_stale,
             seed_set=seed_set,
             checkpoint=checkpoint,
+            cap=args.cap,
+            seeds=list(range(seed_start, seed_start + args.seeds)),
         )
+        if res.get("not_comparable"):
+            print(f"NOT COMPARABLE: {res['not_comparable']}")
+            return 0
         for reason in res["stale"]:
             print(f"STALE: {reason}")
         if res["stale"] and not args.allow_stale:

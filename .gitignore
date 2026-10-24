@@ -22,6 +22,11 @@ failure1.txt
 _*.txt
 
 results/
-
 logs/
+runs/train/
+runs/eval_*.json
+runs/*.pt
+*.pyc
+.pytest_cache/
+.ruff_cache/
 

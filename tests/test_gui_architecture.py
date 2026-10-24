@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+from typing import Any
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -32,6 +33,15 @@ def _ensure_qapp() -> None:
 
 def _qapp():
     return QApplication.instance() or QApplication([])
+
+
+def _torch_available() -> bool:
+    try:
+        import torch  # noqa: F401
+
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _wait_until(cond, timeout=10.0) -> None:
@@ -171,3 +181,48 @@ def test_build_rda_stub_reports_error() -> None:
     widget._build()
     _wait_until(lambda: "failed" in widget.param_label.text().lower())
     assert "failed" in widget.param_label.text().lower()
+
+
+@pytest.mark.skipif(not _torch_available(), reason="torch not installed")
+def test_checkpoint_playback_rebuilds_arch_runs_world(tmp_path) -> None:
+    from simlab.core.config import load_config
+    from simlab.core.runner import Runner
+    from simlab.training.arch_spec import build_policy_cfg
+    from simlab.training.torch_policy import TorchPolicy
+
+    selection = {
+        "backbone": "gru",
+        "drive_core": "rda8",
+        "fusion": "concat",
+        "obs_mode": "obs_only",
+        "seed": 0,
+        "backbone_config": {"hidden": 32},
+        "drive_config": {"decay": 0.5},
+    }
+    ckpt = tmp_path / "p.pt"
+    TorchPolicy(seed=0, cfg=build_policy_cfg(selection)).save_checkpoint(ckpt)
+
+    widget = ArchitectureWidget(load_config())
+    widget.drive.setCurrentText("rda8")
+    widget._checkpoint_path = str(ckpt)
+    captured: dict[str, Any] = {}
+    widget.playbackRequested.connect(lambda cfg: captured.update(cfg=cfg))
+    widget._apply()
+    assert "cfg" in captured
+    cfg = captured["cfg"]
+    assert cfg.policy == "learned_torch"
+    assert str(cfg.policy_checkpoint) == str(ckpt)
+    assert cfg.policy_cfg is None
+    assert cfg.drive == "rda8"
+
+    runner = Runner(cfg, seed=0)
+    runner.setup()
+    result = runner.run_step(
+        include_observations=False,
+        include_snapshot=False,
+        include_agent_states=False,
+    )
+    assert result is not None
+    assert runner._step_count == 1
+    assert runner._policy is not None
+    assert runner._policy._backbone.config_dict()["backbone"] == "gru"
