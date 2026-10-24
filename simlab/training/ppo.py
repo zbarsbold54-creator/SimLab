@@ -271,17 +271,28 @@ class _WorkerEnv:
         }
 
 
+def _rollout_seed(seed: int, rank: int, iteration: int) -> int:
+    """Deterministic rollout RNG seed as a pure function of (training seed,
+    worker id, iteration). Same config + same seed reproduces identical
+    per-worker rollout streams across separate runs and processes."""
+    return (
+        int(seed) * 2654435761 ^ rank * 40503 ^ iteration * 17011
+    ) & 0x7FFFFFFF
+
+
 def _rollout_worker(rank: int, cfg: PPOConfig, task_q: mp.Queue, result_q: mp.Queue) -> None:
     import torch
 
     torch.set_num_threads(1)
-    rng = np.random.default_rng(TRAIN_SEED_BASE + rank * 1000)
     env = _WorkerEnv(cfg, rank)
     while True:
         job = task_q.get()
         if job is None:
             break
         env.policy.load_net_state_dict(job["weights"])
+        rng = np.random.default_rng(
+            _rollout_seed(cfg.seed, rank, job.get("iteration", 0))
+        )
         try:
             segs = env.collect(torch, rng)
         except Exception as exc:  # noqa: BLE001
@@ -308,6 +319,7 @@ class PPOTrainer:
         self._procs: list[mp.Process] = []
         self._csv = None
         self._start = time.time()
+        self._broadcast_it = -1
 
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -327,12 +339,18 @@ class PPOTrainer:
         self._procs = []
 
     def _broadcast(self) -> None:
+        self._broadcast_it += 1
         sd = {k: v.detach().clone() for k, v in self.policy.net_state_dict().items()}
+        job = {"weights": sd, "iteration": self._broadcast_it}
         for _ in self._procs:
-            self._task_q.put({"weights": sd})
+            self._task_q.put(job)
 
     def _collect(self) -> list[dict[str, Any]]:
         results = [self._result_q.get() for _ in self._procs]
+        # Concatenate worker rollouts in fixed worker-id order so the segment
+        # ordering is independent of mp.Queue arrival timing (as-completed
+        # order would make the concatenation nondeterministic across runs).
+        results.sort(key=lambda res: res.get("rank", 0))
         segs: list[dict[str, Any]] = []
         prof = self.cfg.profile
         t_env = t_inf = t_oth = 0.0

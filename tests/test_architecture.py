@@ -7,6 +7,8 @@ snapshot/replay round-tripping. All CPU.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +87,46 @@ def _segments(bb: str, dc: str, rng, n_steps: int = 40) -> list[dict[str, Any]]:
             "done": np.asarray(done, dtype=np.float32),
         }
     ]
+
+
+def _final_weights(out_dir: Path) -> dict[str, Any]:
+    import torch
+
+    return torch.load(
+        out_dir / "final.pt", map_location="cpu", weights_only=False
+    )["state_dict"]
+
+
+def test_multiworker_training_is_deterministic_across_processes(tmp_path: Path):
+    """workers=2, seeded 2-iteration training in two separate processes must
+    produce identical weights (regression for as-completed collection order)."""
+    import torch
+
+    total_steps = 900  # 2 iterations with 2 workers x 256 steps
+    outs = [tmp_path / "run_a", tmp_path / "run_b"]
+    for out in outs:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "simlab.cli",
+                "train",
+                "--obs", "obs_only",
+                "--total-steps", str(total_steps),
+                "--workers", "2",
+                "--seed", "7",
+                "--out", str(out),
+            ],
+            cwd=str(REPO),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    a = _final_weights(outs[0])
+    b = _final_weights(outs[1])
+    assert set(a) == set(b)
+    for k in a:
+        assert torch.equal(a[k], b[k]), f"tensor diverged: {k}"
 
 
 def test_backward_compat_legacy_checkpoint():
