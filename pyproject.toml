@@ -16,6 +16,9 @@ dev = [
     "pytest",
     "ruff",
 ]
+learn = [
+    "torch",
+]
 
 [project.scripts]
 simlab-cli = "simlab.cli:main"

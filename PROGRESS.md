@@ -838,3 +838,69 @@ and test seeds.
 ### Step 6 - suite, ruff, commit, tag
 Full suite 59 passed; ruff clean. Committed as "Reference policy and seed
 protocol", tagged world-v1.6.
+
+## Round 11 - Learner harness and PPO smoke test (learner-v0)
+
+### Step 1 - throughput (workers 1/2/4/8, Balanced 5, 20 seeds, cap 10000)
+Baseline steps/s (aggregate world steps over all workers): 1w=972.7,
+2w=1979.6, 4w=3725.3, 8w=5384.9. With OMP/MKL_NUM_THREADS=1 in worker
+processes: 1w=1343.0, 2w=2500.0, 4w=4255.3, 8w=6670.2. 4w threads=1 is
+3.17x single-process (target >=2.5x met). agg_hash identical across runs.
+BLAS oversubscription confirmed (single-process +38% with threads=1).
+
+### Step 2 - housekeeping
+docs/baselines.json now records git_describe (world-v1.6) at generation time
+instead of a bare commit hash; eval --compare relies on config/policy hashes
+only. No STALE warning appears when config and policy hashes match.
+
+### Step 3 - torch isolation
+torch 2.14.1+cpu installed via optional [learn] extra. torch.cuda.is_available()
+= False (no GPU). Test confirms importing simlab.core and simlab.cli (without
+train) does not load torch. Torch imported only lazily inside plugin/training
+modules.
+
+### Step 4 - reward and observation encoding
+Added registered task survival_shaped (+0.01 alive, -1.0 on death,
++0.05*delta energy fraction on positive gain); SurvivalTask unchanged. Learner
+encoding: 16 rays x (distance/20 + one-hot of 4 ray types) + energy/100,
+health/100, speed/max_speed = 83 dims obs_only; Option B appends 8 drives = 91.
+
+### Step 5 - learned_gru plugin
+simlab/plugins/learned_gru.py: GRU hidden 64 + actor/critic, parameter-shared,
+needs_observations=True, per-agent hidden reset/get_state/set_state (get_state
+returns a copy, fixing a zero-copy alias bug), loads from --checkpoint, and
+folds checkpoint hash into policy_hash. Tests pass: scrub-back replay identical
+actions, breaks-if-not-restored, torch isolation, eval determinism.
+
+### Step 6 - recurrent PPO trainer
+simlab/training/ppo.py + train subcommand: GAE (gamma .995, lambda .95),
+clip .2, Adam LR decay 3e-4, entropy, sequence minibatches len 32 with episode
+masks. Rollout workers each own a World and a CPU copy of the policy
+(torch.set_num_threads(1)). Training seeds from 100000 up. Tiny smoke (3000
+steps) passed.
+
+### Step 7 - 300k smoke test (obs_only, 4 workers, Balanced 5)
+Wall ~9.8 min; throughput ~509 env steps/s aggregate (~2546 agent steps/s).
+Learning curve: mean return 0.13 -> ~2.00, entropy 3.53 -> 4.01 (exploring),
+approx_kl small, value loss decreasing. Quick-eval (dev seeds 0-4, cap 2000)
+mostly 100% cap (one 96% dip at it=159).
+Final checkpoint on dev seeds 0-19, cap 10000, 4 workers:
+- Balanced 5: cap 5.0% [2,9], median 3705, starve 94/hazard 1/trunc 5,
+  food_left 390.3, mean_energy 51.95. Verdicts: random BETTER, heuristic_noflee
+  NOT DISTINGUISHABLE, heuristic WORSE.
+- Hard 5: cap 11.0% [6,16], median 3913, starve 76/hazard 13/trunc 11,
+  food_left 385.5. Verdicts: random BETTER, heuristic_noflee BETTER, heuristic WORSE.
+The learner beats random clearly but sits below the hand-crafted heuristic on
+both scenarios. Learning curve is not flat/diverging, but the policy does not
+yet match the heuristic; the cap is limited by late starvation (survival median
+~3700-3900 vs cap 10000).
+
+### Step 8 - docs/EXPERIMENTS.md
+Planned obs_only vs obs_drives experiment (3 training seeds each), exact
+commands, estimated wall time (~45-60 min with two jobs at a time), and eval
+protocol (cap CI, median survival, death-cause split on test seeds 1000-1019,
+pairwise condition comparison).
+
+### Step 9 - suite, ruff, commit, tag
+Full suite 63 passed; ruff clean. Committed as "Learner harness and PPO smoke
+test", tagged learner-v0.

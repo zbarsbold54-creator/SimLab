@@ -125,21 +125,21 @@ def main() -> None:
         sets = {"set": run_grid(args.seed_offset)}
         doc = {
             "generated": datetime.now(UTC).isoformat(),
-            "commit": _short_hash(),
+            "git_describe": _git_describe(),
             "seed_list": list(range(args.seed_offset, args.seed_offset + SEEDS)),
             "step_cap": CAP,
             "scenarios": sets["set"],
         }
         out = REPO / "docs" / "baselines.json"
         out.write_text(json.dumps(doc, indent=2, sort_keys=True), encoding="utf-8")
-        print(f"\nwrote {out.relative_to(REPO)} (commit {doc['commit']})")
+        print(f"\nwrote {out.relative_to(REPO)} (git_describe {doc['git_describe']})")
         return
 
     dev = run_grid(0)
     test = run_grid(1000)
     doc = {
         "generated": datetime.now(UTC).isoformat(),
-        "commit": _short_hash(),
+        "git_describe": _git_describe(),
         "step_cap": CAP,
         "scenarios": dev,
         "seed_sets": {
@@ -152,12 +152,12 @@ def main() -> None:
     }
     out = REPO / "docs" / "baselines.json"
     out.write_text(json.dumps(doc, indent=2, sort_keys=True), encoding="utf-8")
-    print(f"\nwrote {out.relative_to(REPO)} (commit {doc['commit']})")
+    print(f"\nwrote {out.relative_to(REPO)} (git_describe {doc['git_describe']})")
 
 
-def _short_hash() -> str:
+def _git_describe() -> str:
     return subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
+        ["git", "describe", "--tags", "--always"],
         capture_output=True,
         text=True,
         check=False,

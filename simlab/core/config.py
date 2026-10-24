@@ -65,6 +65,9 @@ class SimLabConfig:
     drive: str = "simple"
     retention: str = "fixed_decay"
     policy: str = "heuristic"
+    # Runtime-injected path to a checkpoint for a learned policy. Never enters
+    # to_dict() so it does not affect resolved config hashes or baselines.
+    policy_checkpoint: str | None = None
 
     @classmethod
     def from_toml(cls, path: str) -> "SimLabConfig":

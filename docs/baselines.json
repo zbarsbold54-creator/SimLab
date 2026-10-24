@@ -1,6 +1,6 @@
 {
-  "commit": "7307977",
-  "generated": "2026-10-24T03:04:17.267927+00:00",
+  "generated": "2026-10-24T04:15:25.859716+00:00",
+  "git_describe": "world-v1.6",
   "scenarios": {
     "balanced_1": {
       "agents": 1,

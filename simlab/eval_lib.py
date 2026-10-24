@@ -43,13 +43,23 @@ def resolved_config_hash(config_path: str, agents: int) -> str:
     ).hexdigest()[:16]
 
 
-def policy_source_hash(policy_name: str) -> str:
-    """Hash the source files defining a registered policy and its bases."""
+def policy_source_hash(
+    policy_name: str, checkpoint: str | Path | None = None
+) -> str:
+    """Hash the source files defining a registered policy and its bases.
+
+    When a checkpoint path is supplied, the checkpoint file bytes are folded
+    into the hash so ``--compare`` staleness checks detect a changed network
+    (including its observation dimension and weights).
+    """
     from simlab.core.registry import get
 
     cls = get("policy", policy_name)
     if cls is None:
-        return hashlib.sha256(policy_name.encode("utf-8")).hexdigest()[:16]
+        blob = policy_name.encode("utf-8")
+        if checkpoint is not None:
+            blob += Path(checkpoint).read_bytes()
+        return hashlib.sha256(blob).hexdigest()[:16]
     files: list[str] = []
     seen: set[str] = set()
 
@@ -65,6 +75,8 @@ def policy_source_hash(policy_name: str) -> str:
     walk(cls)
     files.sort()
     blob = b"".join(Path(f).read_bytes() for f in files)
+    if checkpoint is not None:
+        blob += Path(checkpoint).read_bytes()
     return hashlib.sha256(blob).hexdigest()[:16]
 
 
@@ -75,6 +87,7 @@ def run_episode_metrics(
     cap: int,
     config_path: str,
     drive: str = "simple",
+    checkpoint: str | None = None,
 ) -> dict[str, Any]:
     """One full-pipeline episode; returns per-agent metrics for the seed."""
     base = load_config(config_path)
@@ -83,6 +96,7 @@ def run_episode_metrics(
         policy=policy,
         drive=drive,
         agent=replace(base.agent, count=agents),
+        policy_checkpoint=checkpoint,
     )
     runner = Runner(cfg, seed=seed, agents=agents)
     runner.setup()
@@ -226,6 +240,7 @@ def compare_to_baselines(
     policy: str,
     allow_stale: bool = False,
     seed_set: str | None = None,
+    checkpoint: str | Path | None = None,
 ) -> dict[str, Any]:
     """Verdicts against the docs/baselines.json reference table.
 
@@ -256,7 +271,7 @@ def compare_to_baselines(
         }
 
     current_config_hash = resolved_config_hash(config_path, agents)
-    current_policy_hash = policy_source_hash(policy)
+    current_policy_hash = policy_source_hash(policy, checkpoint)
     stale: list[str] = []
     if scenario.get("config_hash") != current_config_hash:
         stale.append(f"config hash differs for {baseline_key}")

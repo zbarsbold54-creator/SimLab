@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from multiprocessing import Pool
@@ -40,6 +41,14 @@ def main(argv: list[str] | None = None) -> int:
     evalp.add_argument("--out", default=None)
     evalp.add_argument("--compare", action="store_true")
     evalp.add_argument("--allow-stale", action="store_true")
+    evalp.add_argument("--checkpoint", default=None)
+    trainp = subs.add_parser("train")
+    trainp.add_argument("--obs", choices=["obs_only", "obs_drives"], default="obs_only")
+    trainp.add_argument("--total-steps", type=int, default=300000)
+    trainp.add_argument("--workers", type=int, default=4)
+    trainp.add_argument("--seed", type=int, default=0)
+    trainp.add_argument("--out", required=True)
+    trainp.add_argument("--eval-every", type=int, default=20)
     args = parser.parse_args(argv)
     if args.command == "run":
         return run_simulation(args.steps, args.seed)
@@ -47,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_benchmark(args.steps, args.agents)
     if args.command == "eval":
         return run_eval(args)
+    if args.command == "train":
+        return run_train(args)
     if args.command == "gui":
         from simlab.gui.app import main as gui_main
 
@@ -55,11 +66,18 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
-def _eval_worker(task: tuple[str, str, int, int, int, str]) -> dict[str, Any]:
-    policy, drive, seed, agents, cap, config_path = task
+def _eval_worker(
+    task: tuple[str, str, int, int, int, str, str | None],
+) -> dict[str, Any]:
+    # One thread per worker avoids BLAS oversubscription in the spawned pool.
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    policy, drive, seed, agents, cap, config_path, checkpoint = task
     from simlab.eval_lib import run_episode_metrics
 
-    return run_episode_metrics(policy, seed, agents, cap, config_path, drive=drive)
+    return run_episode_metrics(
+        policy, seed, agents, cap, config_path, drive=drive, checkpoint=checkpoint
+    )
 
 
 def run_eval(args: argparse.Namespace) -> int:
@@ -79,8 +97,17 @@ def run_eval(args: argparse.Namespace) -> int:
         }[args.scenario]
     )
     seed_start = getattr(args, "seed_offset", 0)
+    checkpoint = getattr(args, "checkpoint", None)
     tasks = [
-        (args.policy, args.drive, seed, args.agents, args.cap, config_path)
+        (
+            args.policy,
+            args.drive,
+            seed,
+            args.agents,
+            args.cap,
+            config_path,
+            checkpoint,
+        )
         for seed in range(seed_start, seed_start + args.seeds)
     ]
     start = time.monotonic()
@@ -131,6 +158,7 @@ def run_eval(args: argparse.Namespace) -> int:
             args.policy,
             args.allow_stale,
             seed_set=seed_set,
+            checkpoint=checkpoint,
         )
         for reason in res["stale"]:
             print(f"STALE: {reason}")
@@ -140,6 +168,22 @@ def run_eval(args: argparse.Namespace) -> int:
             )
         for entry in res["verdicts"]:
             print(f"vs {entry['against']:<18}: {entry['verdict']}")
+    return 0
+
+
+def run_train(args: argparse.Namespace) -> int:
+    from simlab.training.ppo import PPOConfig, PPOTrainer
+
+    cfg = PPOConfig(
+        obs_mode=args.obs,
+        total_steps=args.total_steps,
+        workers=args.workers,
+        seed=args.seed,
+        eval_every=args.eval_every,
+    )
+    trainer = PPOTrainer(cfg, args.out)
+    trainer.train()
+    print(f"training done -> {args.out}")
     return 0
 
 

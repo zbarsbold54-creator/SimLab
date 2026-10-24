@@ -53,6 +53,33 @@ declares `needs_observations = True` receives the following fields:
 All three entries are in [0.0, 1.0]. `speed_factor` is the world constant
 (8.0 by default), so a speed of 0.0 means stopped and 1.0 means full speed.
 
+## Learner observation encoding
+
+For learned policies the raw `Observation` is encoded into a fixed-size float
+vector (numpy, in `simlab/training/encoding.py`). The learner never sees
+absolute positions or the step count. Per ray we keep the normalized distance
+and a one-hot of the ray-type channel, then append the three normalized
+proprioceptive values. Option B appends the 8 drive values.
+
+| Option | Dimensions | Layout |
+|--------|-----------|--------|
+| `obs_only` | 83 | 16 x (distance/20.0 + 4 one-hot) + (energy/max, health/100, speed/max_speed) |
+| `obs_drives` | 91 | 83 above + 8 drive values |
+
+Index ranges (0-based):
+
+| Indices | Content |
+|---------|---------|
+| 0 | ray 0 distance / RAY_RANGE (20.0) |
+| 1–4 | ray 0 ray-type one-hot (type 1 food, 2 hazard, 3 open, 4 agent) |
+| 5 | ray 1 distance |
+| 6–9 | ray 1 one-hot |
+| ... | repeat for rays 2–15 |
+| 80–82 | proprioception: energy/max_energy, health/100, speed/speed_factor |
+| 83–90 | (obs_drives only) drive values in the order below |
+
+`obs_dim(with_drives)` gives the vector length.
+
 ## Action
 
 `Action` is a frozen dataclass (`simlab/core/types.py`):
@@ -150,23 +177,67 @@ identical actions (the scrub-back test asserts this).
 ## Throughput (measured)
 
 Measured on the dev machine, world 50x50, default config, step cap 1000,
-numpy-only.
+numpy-only. The single-process full pipeline runs (sensing, drive core,
+policy, every step) at about 3280 steps/s with 1 agent and 1200 steps/s with
+5 agents. World-only stepping (no sensing/drives/policy) is roughly 5520
+steps/s at 1 agent and 3130 steps/s at 5 agents.
 
-| Agents | Single-process full pipeline | Multiprocessing eval (4 workers) |
-|--------|------------------------------|----------------------------------|
-| 1 | 3279.8 steps/s | ~1070 aggregate steps/s (4 seeds, cap 10000) |
-| 5 | 1200.1 steps/s | ~750 aggregate steps/s (4 seeds, cap 10000) |
+Multiprocessing eval wall time is dominated by per-seed process spawn and
+collection overhead. Setting `OMP_NUM_THREADS=1` and `MKL_NUM_THREADS=1`
+inside worker processes removes BLAS thread oversubscription and improves
+per-worker throughput substantially. Measured aggregate (summed over workers)
+for a 20-seed, cap-10000, Balanced-5 eval:
 
-World-only stepping (no sensing/drives/policy) is roughly 5520 steps/s at 1
-agent and 3130 steps/s at 5 agents. Multiprocessing eval spawns one process per
-seed, so per-worker throughput equals the single-process number; wall time adds
-process-spawn and collection overhead. Numbers are machine-dependent.
+| Workers | Aggregate steps/s (no threads pin) | Aggregate steps/s (threads=1) |
+|---------|-----------------------------------|-------------------------------|
+| 1 | 973 | 1343 |
+| 2 | 1980 | 2500 |
+| 4 | 3725 | 4255 |
+| 8 | 5385 | 6670 |
+
+The 4-worker threads=1 run is ~3.2x the single-process wall time. Numbers are
+machine-dependent.
 
 ## torch policy
 
-Torch is allowed inside a plugin/learned policy. It must never be imported by
-`simlab.core`. Evaluation runs each seed in its own process, so a torch policy
-is isolated and does not leak into the core.
+Torch is allowed inside a plugin/learned policy and in the training module. It
+must never be imported by `simlab.core`, and `simlab.cli` must not load torch
+unless the `train` command runs. Learned policies import torch lazily (inside
+`__init__`/methods), so importing `simlab.core` or `simlab.cli` never loads
+torch (verified by a test). Evaluation runs each seed in its own process, so a
+torch policy is isolated and does not leak into the core. Training runs on CPU
+only (`torch.set_num_threads(1)` per rollout worker; no CUDA).
+
+## The learned GRU plugin
+
+`simlab/plugins/learned_gru.py` is the reference learned policy. It is a
+registered Policy with:
+
+- a GRU cell (hidden 64) plus actor/critic heads, parameters shared across
+  agents;
+- `needs_observations = True`; it reads only `obs` and `drive_state` through
+  the Policy interface;
+- per-agent hidden state:
+  - `reset(n_agents, rng)` zeroes/randomizes hidden state;
+  - `get_state()` returns a JSON-friendly copy of the hidden array;
+  - `set_state(state)` restores it exactly, so scrub-back replay reproduces
+    identical actions;
+- weights loaded from a checkpoint via `--policy learned_gru --checkpoint
+  PATH`; the checkpoint file hash is folded into the policy hash so stale
+  comparisons are caught.
+
+Deterministic evaluation uses the action means (no sampling), so a given
+checkpoint produces identical outputs across runs.
+
+## Training
+
+`python -m simlab.cli train --obs {obs_only,obs_drives} --total-steps N
+--workers W --seed S --out DIR --eval-every K` runs recurrent PPO (GAE,
+clip, Adam with linear LR decay, entropy bonus, sequence minibatches of length
+32 with episode masking). Rollout workers each own a World and a CPU copy of
+the policy. Training seeds start at 100000 so they never overlap dev seeds
+(0–19) or test seeds (1000–1019). Checkpoints, a `learning.csv` curve, and a
+`config.json` are written to `--out`.
 
 ## Commands
 
