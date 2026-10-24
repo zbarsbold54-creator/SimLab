@@ -656,3 +656,60 @@ with CIs", tagged `world-v1.2`.
   worth monitoring. The `heuristic_v2` frozen row remains at 69.0%.
 - Oracle policies remain "not an upper bound"; only reference.
 - `debug_test4.py` remains untracked scratch (not committed).
+
+## Round 7 - Eval CLI and Hard scenario
+
+Decisions: accept the 80% Balanced-5 heuristic cap; keep oracle policies
+registered and marked "not an upper bound"; delete `_baseline_refresh_out.txt`
+and add `_*.txt` to `.gitignore`.
+
+### Step 1 - Hard preset
+Supply_ratio sweep at 5 agents, 20 seeds, cap 10000 (`scripts/hard_sweep.py`):
+heuristic cap was 80.0% (CI [71,88]) at every ratio in {0.8, 1.0, 1.2, 1.5}
+with zero starvation (cap is hazard-bound, not food-bound). Leftover food
+declined with ratio. Selected `supply_ratio = 0.8` (least surplus food, still
+no starvation) and saved `configs/hard.toml` + a "Hard" preset in the Scenario
+dock (`simlab/gui/scenario.py`). `configs/default.toml` unchanged. Hard rows
+added to `docs/BASELINES.md`.
+
+### Step 2 - machine-readable baselines
+`scripts/baseline_refresh.py` now also writes `docs/baselines.json` covering
+balanced_1/5/20, solo, and hard_1/5/20 x {random, heuristic_noflee,
+heuristic, heuristic_v2}: cap%, CI bounds, median, death-cause counts, food
+left, seeds, cap, git commit, and UTC date.
+
+### Step 3 - eval CLI
+Added `python -m simlab.cli eval --policy NAME [--drive NAME] --scenario
+{balanced,solo,hard} --agents N --seeds 20 --cap 10000 --workers 4 --out
+results/NAME.json --compare` in `simlab/cli.py` + `simlab/eval_lib.py` (full
+pipeline, multiprocessing one process per seed, bootstrap CI over seeds,
+death cause split, food eaten/agent, hazard contacts per 1000 steps, mean
+energy, wall time). `--compare` reads `docs/baselines.json` and prints
+BETTER/WORSE/NOT DISTINGUISHABLE vs random, heuristic_noflee, heuristic.
+Determinism: two runs of heuristic on balanced_5 produced the identical output
+hash `dbd7610d51fc57da` (wall_time excluded from the canonical hash).
+
+Eval CLI (heuristic, balanced_5, 20 seeds): cap 80.0% CI [71,88], median
+10000, split (0 starve / 20 hazard / 80 trunc), food_eaten/agent 226.49,
+hazard_contacts/1000 12.387, mean_energy 98.83, food_left 372.5, wall ~41.6s.
+
+### Step 4 - reference learned-policy plugin
+Added `simlab/plugins/example_learned_policy.py` (registered `example_learned`):
+numpy-only GRU-like recurrent cell with fixed random weights, uses obs and
+drive_state, `needs_observations = True`, `reset(n_agents, rng)`,
+`get_state()`/`set_state()`, no torch. Documented as the template in
+`docs/EXTENDING.md`. Added `tests/test_example_learned_policy.py` (positive and
+negative scrub-back replay tests).
+
+### Step 5 - full suite and ruff
+Full suite: 53 passed (19.8s). Ruff: all checks passed. Committed as "Eval CLI
+and Hard scenario", tagged `world-v1.3`.
+
+### Still open
+- The Hard preset cannot be made substantially harder by supply_ratio alone:
+  the 5-agent heuristic cap stays at 80% (hazard-bound). A harder benchmark
+  would need a different hazard regime, not food scaling.
+- `results/heuristic_balanced_5.json` is a committed eval artifact; other
+  `results/*.json` scratch files were deleted. `results/` is not gitignored.
+- Baselines in `docs/baselines.json` are generated at commit time and cite the
+  tag `world-v1.3`; a later commit would need a refresh to update the hash.

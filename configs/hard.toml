@@ -1,0 +1,28 @@
+# Hard preset: a food-constrained variant of Balanced (supply_ratio = 0.8),
+# same hazard detection radius. Chosen so the heuristic cap stays near 80%
+# but the leftover food pool tightens, giving a harder foraging regime.
+[world]
+width = 50
+height = 50
+seed = 42
+
+[agent]
+energy = 100
+move_cost = 1
+food_eat = 10
+count = 5
+
+[hazard]
+damage_per_step = 1
+detection_radius = 16
+
+[food]
+spawn_rate = 0.1
+max_food = 20
+regrow_rate = 0.0
+supply_ratio = 0.8
+
+[components]
+drive = "simple"
+retention = "fixed_decay"
+policy = "heuristic"

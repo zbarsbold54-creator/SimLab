@@ -33,6 +33,7 @@ def run_episode(
     config_path: str = "configs/default.toml",
     radius: float | None = None,
     regrow_rate: float | None = None,
+    supply_ratio: float | None = None,
 ) -> tuple[dict[str, dict[str, Any]], float]:
     base = load_config(config_path)
     cfg = replace(base, policy=policy, agent=replace(base.agent, count=agents))
@@ -40,6 +41,8 @@ def run_episode(
         cfg = replace(cfg, hazard=replace(cfg.hazard, detection_radius=float(radius)))
     if regrow_rate is not None:
         cfg = replace(cfg, food=replace(cfg.food, regrow_rate=regrow_rate))
+    if supply_ratio is not None:
+        cfg = replace(cfg, food=replace(cfg.food, supply_ratio=float(supply_ratio)))
     runner = Runner(cfg, seed=seed, agents=agents)
     runner.setup()
     world = runner._world
@@ -107,3 +110,68 @@ def split(outcomes: list[str]) -> tuple[int, int, int]:
     for cause in outcomes:
         counts[cause] += 1
     return counts["starvation"], counts["hazard"], counts["truncation"]
+
+
+def bootstrap_cap_ci(
+    rows: list[dict[str, Any]],
+    n_boot: int = 1000,
+    rng_seed: int = 1234,
+) -> tuple[float, float]:
+    """95% bootstrap CI for cap% resampled over seeds (not agents)."""
+    import numpy as np
+
+    rng = np.random.default_rng(rng_seed)
+    classes_by_seed = [row["classes"] for row in rows]
+    caps = []
+    for _ in range(n_boot):
+        sample = rng.integers(0, len(rows), size=len(rows))
+        cnt = sum(len(classes_by_seed[i]) for i in sample)
+        cap_cnt = sum(
+            sum(1 for cls in classes_by_seed[i] if cls == "truncation")
+            for i in sample
+        )
+        caps.append(100.0 * cap_cnt / cnt)
+    caps.sort()
+    return (
+        caps[int(0.025 * len(caps))],
+        caps[int(0.975 * len(caps))],
+    )
+
+
+def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate episode rows into the standard baseline summary dict."""
+    import numpy as np
+
+    n = 0
+    capn = 0
+    starve = 0
+    hazard = 0
+    trunc = 0
+    deaths = []
+    food_left = []
+    for row in rows:
+        food_left.append(row["food_left"])
+        for cls, death in zip(row["classes"], row["deaths"]):
+            n += 1
+            deaths.append(death)
+            if cls == "truncation":
+                capn += 1
+                trunc += 1
+            elif cls == "hazard":
+                hazard += 1
+            else:
+                starve += 1
+    deaths.sort()
+    median = deaths[len(deaths) // 2]
+    lo, hi = bootstrap_cap_ci(rows)
+    return {
+        "n": n,
+        "n_agents": max((len(r["classes"]) for r in rows), default=0),
+        "cap_pct": 100.0 * capn / n,
+        "ci": (lo, hi),
+        "median": median,
+        "starve": starve,
+        "hazard": hazard,
+        "trunc": trunc,
+        "food_left_mean": float(np.mean(food_left)) if food_left else 0.0,
+    }

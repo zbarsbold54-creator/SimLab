@@ -133,3 +133,15 @@ class BasicDriveCore:
         if retention_rule is not None and hasattr(retention_rule, "step"):
             values = retention_rule.step(np.zeros_like(values), values, {})
         return dict(zip(self.names, values[0]))
+
+    def get_state(self) -> dict[str, Any]:
+        """Return internal state so snapshots can capture the drive core."""
+        return {
+            "previous": self._previous.copy(),
+            "last_rays": [r.copy() for r in self._last_rays],
+        }
+
+    def set_state(self, state: dict[str, Any]) -> None:
+        """Restore internal state from a captured snapshot."""
+        self._previous = np.asarray(state["previous"], dtype=np.float32)
+        self._last_rays = [np.asarray(r, dtype=np.float32) for r in state["last_rays"]]

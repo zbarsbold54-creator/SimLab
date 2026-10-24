@@ -42,6 +42,7 @@ class ScenarioWidget(QWidget):
                 "Custom",
                 "Balanced",
                 "Solo",
+                "Hard",
                 "Harsh (original)",
                 "Sparse food",
                 "Abundant food",
@@ -94,6 +95,7 @@ class ScenarioWidget(QWidget):
         file_presets = {
             "Balanced": "configs/balanced.toml",
             "Solo": "configs/solo.toml",
+            "Hard": "configs/hard.toml",
             "Harsh (original)": "configs/harsh_original.toml",
         }
         if name in file_presets:

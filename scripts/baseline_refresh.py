@@ -1,34 +1,38 @@
-"""Regenerate BASELINES.md rows with 95% bootstrap CIs over seeds.
+﻿"""Regenerate BASELINES.md rows and docs/baselines.json.
 
-Grid: scenarios (Balanced 1 / 5 / 20, Solo) x policies
+Grid: scenarios (Balanced 1/5/20, Solo, Hard 1/5/20) x policies
 (random / heuristic_noflee / heuristic / heuristic_v2), 20 seeds,
-cap 10000. Multiprocessing, one process per episode.
+cap 10000. Multiprocessing, one process per episode. Also writes the
+machine-readable baseline table to docs/baselines.json.
 """
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
+from datetime import UTC, datetime
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import numpy as np
-from episode_lib import run_episode
+from episode_lib import run_episode, summarize
 
 REPO = Path(__file__).resolve().parents[1]
 
 SEEDS = 20
 CAP = 10000
-BOOTSTRAP = 1000
-RNG_SEED = 1234
 
 SCENARIOS = [
-    ("Balanced 1", str(REPO / "configs/balanced.toml"), 1),
-    ("Balanced 5", str(REPO / "configs/balanced.toml"), 5),
-    ("Balanced 20", str(REPO / "configs/balanced.toml"), 20),
-    ("Solo", str(REPO / "configs/solo.toml"), 1),
+    ("balanced_1", "Balanced 1", str(REPO / "configs/balanced.toml"), 1),
+    ("balanced_5", "Balanced 5", str(REPO / "configs/balanced.toml"), 5),
+    ("balanced_20", "Balanced 20", str(REPO / "configs/balanced.toml"), 20),
+    ("solo", "Solo", str(REPO / "configs/solo.toml"), 1),
+    ("hard_1", "Hard 1", str(REPO / "configs/hard.toml"), 1),
+    ("hard_5", "Hard 5", str(REPO / "configs/hard.toml"), 5),
+    ("hard_20", "Hard 20", str(REPO / "configs/hard.toml"), 20),
 ]
 POLICIES = ["random", "heuristic_noflee", "heuristic", "heuristic_v2"]
 
@@ -43,62 +47,23 @@ def worker(task: tuple[str, str, int, int]) -> dict[str, Any]:
     return {"seed": seed, "classes": classes, "deaths": deaths, "food_left": food_left}
 
 
-def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    n = 0
-    capn = 0
-    starve = 0
-    hazard = 0
-    trunc = 0
-    deaths = []
-    food_left = []
-    for row in rows:
-        food_left.append(row["food_left"])
-        for cls, death in zip(row["classes"], row["deaths"]):
-            n += 1
-            deaths.append(death)
-            if cls == "truncation":
-                capn += 1
-                trunc += 1
-            elif cls == "hazard":
-                hazard += 1
-            else:
-                starve += 1
-    deaths.sort()
-    median = deaths[len(deaths) // 2]
-
-    # Bootstrap cap% over seeds (resample seeds with replacement).
-    rng = np.random.default_rng(RNG_SEED)
-    classes_by_seed = [row["classes"] for row in rows]
-    n_agents = max(len(c) for c in classes_by_seed)
-    caps = []
-    for _ in range(BOOTSTRAP):
-        sample = rng.integers(0, len(rows), size=len(rows))
-        cnt = sum(len(classes_by_seed[i]) for i in sample)
-        cap_cnt = sum(
-            sum(1 for cls in classes_by_seed[i] if cls == "truncation")
-            for i in sample
-        )
-        caps.append(100.0 * cap_cnt / cnt)
-    caps.sort()
-    lo = caps[int(0.025 * len(caps))]
-    hi = caps[int(0.975 * len(caps))]
-
+def json_entry(s: dict[str, Any]) -> dict[str, Any]:
     return {
-        "n": n,
-        "n_agents": n_agents,
-        "cap_pct": 100.0 * capn / n,
-        "ci": (lo, hi),
-        "median": median,
-        "starve": starve,
-        "hazard": hazard,
-        "trunc": trunc,
-        "food_left_mean": float(np.mean(food_left)),
+        "cap_pct": round(s["cap_pct"], 3),
+        "ci": [round(s["ci"][0], 3), round(s["ci"][1], 3)],
+        "median": int(s["median"]),
+        "death_cause": {
+            "starvation": int(s["starve"]),
+            "hazard": int(s["hazard"]),
+            "truncation": int(s["trunc"]),
+        },
+        "food_left_mean": round(s["food_left_mean"], 3),
     }
 
 
 def main() -> None:
     tasks = []
-    for scenario_label, config_path, agents in SCENARIOS:
+    for _key, _label, config_path, agents in SCENARIOS:
         for policy in POLICIES:
             for seed in range(SEEDS):
                 tasks.append((config_path, policy, agents, seed))
@@ -113,20 +78,46 @@ def main() -> None:
     print(header)
     print("-" * len(header))
 
+    scenarios_json: dict[str, Any] = {}
     idx = 0
-    for scenario_label, config_path, agents in SCENARIOS:
+    for key, label, config_path, agents in SCENARIOS:
+        policies = {}
         for policy in POLICIES:
             rows = results[idx: idx + SEEDS]
             idx += SEEDS
             s = summarize(rows)
+            policies[policy] = json_entry(s)
             print(
-                f"{scenario_label:<14}{policy:<18}"
+                f"{label:<14}{policy:<18}"
                 f"{s['cap_pct']:6.1f}%  "
                 f"[{s['ci'][0]:5.1f},{s['ci'][1]:5.1f}]  "
                 f"{s['median']:>8}  "
                 f"{s['starve']:>8}{s['hazard']:>8}{s['trunc']:>8}  "
                 f"{s['food_left_mean']:8.1f}"
             )
+        scenarios_json[key] = {
+            "label": label,
+            "agents": agents,
+            "config": str(Path(config_path).relative_to(REPO)).replace("\\", "/"),
+            "policies": policies,
+        }
+
+    short_hash = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    doc = {
+        "generated": datetime.now(UTC).isoformat(),
+        "commit": short_hash,
+        "seed_list": list(range(SEEDS)),
+        "step_cap": CAP,
+        "scenarios": scenarios_json,
+    }
+    out = REPO / "docs" / "baselines.json"
+    out.write_text(json.dumps(doc, indent=2, sort_keys=True), encoding="utf-8")
+    print(f"\nwrote {out.relative_to(REPO)} (commit {short_hash})")
 
 
 if __name__ == "__main__":

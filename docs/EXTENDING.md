@@ -43,6 +43,16 @@ class CoastPolicy:
 
 The name `coast` appears in the Scenario dock. Policies may instead implement `select_action(agent_state, world_state, available_actions, step)` for a world-level controller.
 
+## Add a learned policy (template)
+
+For a policy with recurrent internal state that must be stepped every step, implement `needs_observations = True`, `reset(n_agents, rng)`, `get_state()` and `set_state()`. `reset` resizes/zeroes hidden state; `get_state`/`set_state` let snapshots capture and restore it so scrub-back replay reproduces identical actions. See `simlab/plugins/example_learned_policy.py` for the full template (a numpy-only GRU-like cell with fixed random weights; it must not import torch). Key points:
+
+- Declare `needs_observations = True` so fast paths never skip sensing/drives for your policy.
+- Build input features only from `obs` (rays + proprioception) and the `drive_state` tuple passed into `act`.
+- Keep hidden state in a NumPy array; `get_state()` returns a copy, `set_state()` restores it.
+- `act` is called once per live agent per step without an agent id — index hidden state by a stable per-agent identity if your policy depends on which agent is acting.
+- Register as usual with `@register("policy", "my_policy")`; the Scenario dock and the eval CLI then discover it.
+
 ## Add a retention rule
 
 A retention rule implements `step(previous, drives, context)` and returns a drive array of the same shape:
