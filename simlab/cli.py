@@ -47,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     trainp.add_argument("--total-steps", type=int, default=300000)
     trainp.add_argument("--workers", type=int, default=4)
     trainp.add_argument("--seed", type=int, default=0)
+    trainp.add_argument("--arch", default=None)
     trainp.add_argument("--out", required=True)
     trainp.add_argument("--eval-every", type=int, default=20)
     args = parser.parse_args(argv)
@@ -207,6 +208,11 @@ def run_train(args: argparse.Namespace) -> int:
         seed=args.seed,
         eval_every=args.eval_every,
     )
+    if args.arch:
+        from simlab.training.arch_spec import load_arch_toml
+
+        cfg.arch = load_arch_toml(args.arch)
+        cfg.obs_mode = cfg.arch.get("obs_mode", args.obs)
     trainer = PPOTrainer(cfg, args.out)
     trainer.train()
     print(f"training done -> {args.out}")

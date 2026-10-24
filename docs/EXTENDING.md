@@ -98,3 +98,56 @@ class FastDecay:
 ```
 
 This registers the rule for discovery by name. Retention selection is not currently wired into GUI drive construction; the configured retention option is groundwork for that integration.
+
+## Add an architecture and see it in the GUI
+
+Every backbone and drive core is described by an `ArchSpec`
+(`simlab.training.arch_spec`), a torch-free metadata record. A spec has:
+
+- `name` — unique id used in configs, hashes and checkpoints.
+- `kind` — `"backbone"` or `"drive_core"`.
+- `description` — human-readable text shown in the panel.
+- `config_type` — a `@dataclass` whose typed fields drive the auto-generated form.
+  Field `metadata` is read for `min`, `max`, `choices` and `help`.
+- `loader` — a callable that returns the actual class; it is invoked only when a
+  policy is built (so torch is never imported at GUI startup).
+- `source` — where the spec came from (built-in or a plugin file).
+
+The GUI panel has no knowledge of any specific architecture: it renders dropdowns
+from every registered spec and builds a form from the selected spec's fields.
+Validation (ranges, choices, normalization) also runs from the spec alone, so a
+new architecture appears in the GUI with no code changes to the panel.
+
+To add your own architecture, drop a file into the plugin folder (default
+`plugins/architectures`, override with the `SIMLAB_ARCH_DIR` environment
+variable) and press **Rescan**. Import errors and invalid specs are collected and
+shown in the "Plugin errors" list; they never crash the GUI. The **New
+architecture template** button writes a documented example file into that folder.
+
+Example plugin file (a backbone spec):
+
+```python
+from dataclasses import dataclass, field
+
+from simlab.training.arch_spec import register_arch
+
+
+@dataclass
+class MyConfig:
+    width: int = field(default=64, metadata={"min": 8, "max": 512, "help": "hidden width"})
+
+
+@register_arch("backbone", "mybb", description="My backbone", config=MyConfig)
+class MyBackbone:
+    def __init__(self, **kwargs):
+        self.width = int(kwargs.get("width", 64))
+
+    # implement the Backbone interface (initial_state, forward, param_count,
+    # config_dict); the TorchPolicy adapter wraps it for the sim Policy port.
+```
+
+Select `mybb` in the panel, set the fields, press **Build** (loads torch lazily,
+shows param count and architecture hash), or **Save experiment** to write a TOML
+selection under `runs/` that **Load experiment** restores exactly. Checkpoints
+store the architecture config, so loading one rebuilds the backbone from the
+stored config.

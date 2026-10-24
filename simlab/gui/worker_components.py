@@ -25,14 +25,22 @@ class WorkerComponents:
             self.policy = None
         else:
             try:
-                self.policy = policy_type(seed=self.seed, config=self.config)
+                extra = (
+                    {}
+                    if not getattr(self.config, "policy_cfg", None)
+                    else {"cfg": self.config.policy_cfg}
+                )
+                self.policy = policy_type(
+                    seed=self.seed, config=self.config, **extra
+                )
             except TypeError:
                 try:
                     self.policy = policy_type(seed=self.seed)
                 except TypeError:
                     self.policy = policy_type()
         drive_type = get("drive", self.config.drive)
-        self.drive_core = drive_type() if drive_type else None
+        drive_kwargs = dict(getattr(self.config, "drive_config", None) or {})
+        self.drive_core = drive_type(**drive_kwargs) if drive_type else None
         if self.drive_core is not None:
             self.drive_core.reset(self.agent_count, rng)
         self.drive_names = tuple(getattr(self.drive_core, "names", ()))

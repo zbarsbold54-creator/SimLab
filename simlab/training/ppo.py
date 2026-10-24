@@ -46,19 +46,23 @@ class PPOConfig:
     minibatch_chunks: int = 32
     eval_every: int = 20
     config_path: str = "configs/balanced.toml"
+    # Optional architecture selection (as emitted by the GUI panel / train
+    # --arch TOML). When set, it overrides obs_mode/backbone/fusion.
+    arch: dict[str, Any] | None = None
 
 
-def _build_net(obs_mode: str):
+def _build_net(cfg: PPOConfig):
+    from simlab.training.arch_spec import build_policy_cfg
     from simlab.training.torch_policy import make_policy
 
-    return make_policy(
-        {
-            "backbone": "gru",
-            "fusion": "concat",
-            "obs_mode": obs_mode,
-            "seed": 0,
-        }
-    )
+    arch = getattr(cfg, "arch", None) or {}
+    policy_cfg = build_policy_cfg(arch) if arch else {
+        "backbone": "gru",
+        "fusion": "concat",
+        "obs_mode": cfg.obs_mode,
+        "seed": 0,
+    }
+    return make_policy(policy_cfg)
 
 
 class _WorkerEnv:
@@ -77,8 +81,15 @@ class _WorkerEnv:
         base = load_config(cfg.config_path)
         self.max_energy = float(base.agent.initial_energy)
         c = replace(base, agent=replace(base.agent, count=cfg.n_agents))
+        arch = getattr(cfg, "arch", None) or {}
+        if arch.get("drive_core"):
+            c = replace(
+                c,
+                drive=arch["drive_core"],
+                drive_config=arch.get("drive_config") or None,
+            )
         self._build_world(c)
-        self.policy = _build_net(cfg.obs_mode)
+        self.policy = _build_net(cfg)
         self.policy.reset(cfg.n_agents, np.random.default_rng(self.seed))
         self._hidden = {aid: self.policy._t.zeros(self.policy.hidden_size) for aid in self.world._agents}
         self._init_prev()
@@ -104,6 +115,13 @@ class _WorkerEnv:
         self.seed += 1
         base = load_config(self.cfg.config_path)
         c = replace(base, agent=replace(base.agent, count=self.cfg.n_agents))
+        arch = getattr(self.cfg, "arch", None) or {}
+        if arch.get("drive_core"):
+            c = replace(
+                c,
+                drive=arch["drive_core"],
+                drive_config=arch.get("drive_config") or None,
+            )
         self._build_world(c)
         self.policy.reset(self.cfg.n_agents, np.random.default_rng(self.seed))
         self._hidden = {aid: self.policy._t.zeros(self.policy.hidden_size) for aid in self.world._agents}
@@ -240,7 +258,7 @@ class PPOTrainer:
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.torch = torch
-        self.policy = _build_net(cfg.obs_mode)
+        self.policy = _build_net(cfg)
         self.opt = torch.optim.Adam(self.policy.parameters(), lr=cfg.lr0)
         self.iterations = max(1, math.ceil(cfg.total_steps / (cfg.workers * cfg.env_steps_per_rollout)))
         self._task_q: mp.Queue | None = None

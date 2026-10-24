@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from simlab.core.config import load_config
 from simlab.core.types import Snapshot
 from simlab.gui import theme
+from simlab.gui.architecture import ArchitectureWidget
 from simlab.gui.drive_plot import DrivePlotWidget
 from simlab.gui.frame import SimulationFrame
 from simlab.gui.inspector import InspectorWidget
@@ -76,6 +77,10 @@ class MainWindow(QMainWindow):
         self.inspector_dock = QDockWidget("Inspector", self)
         self.inspector_dock.setWidget(self.inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.inspector_dock)
+        self.arch = ArchitectureWidget(config)
+        self.arch_dock = QDockWidget("Architecture", self)
+        self.arch_dock.setWidget(self.arch)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.arch_dock)
         self.drive_plot = DrivePlotWidget()
         self.plot_dock = QDockWidget("Drives and Timeline", self)
         self.plot_dock.setWidget(self.drive_plot)
@@ -108,6 +113,7 @@ class MainWindow(QMainWindow):
         self.session_toolbar.replayRequested.connect(self._start_replay)
         self.world_view.agentSelected.connect(self._select_agent)
         self.scenario.applyRequested.connect(self._apply_scenario)
+        self.arch.playbackRequested.connect(self._apply_arch)
         self.drive_plot.timelineChanged.connect(self._seek_timeline)
         self.session_toolbar.follow.toggled.connect(self.world_view.set_follow_selected)
         for name, checkbox in self.session_toolbar.overlay_checks.items():
@@ -186,6 +192,12 @@ class MainWindow(QMainWindow):
         self.scenario.summary.setText(
             f"Seed {self._seed} · {config.agent.count} agents · {config.hazard.count} hazards"
         )
+        self._frame_history.clear()
+        self._snapshot_history.clear()
+        self.worker.request_scenario(self._seed, config)
+
+    def _apply_arch(self, config) -> None:
+        self._config = config
         self._frame_history.clear()
         self._snapshot_history.clear()
         self.worker.request_scenario(self._seed, config)

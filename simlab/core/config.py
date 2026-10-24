@@ -68,6 +68,13 @@ class SimLabConfig:
     # Runtime-injected path to a checkpoint for a learned policy. Never enters
     # to_dict() so it does not affect resolved config hashes or baselines.
     policy_checkpoint: str | None = None
+    # Runtime-injected kwargs passed to the selected drive core (GUI
+    # architecture panel). Never serialized; world behavior is unchanged when
+    # left as None.
+    drive_config: dict[str, Any] | None = None
+    # Runtime-injected policy config dict (used when no checkpoint is loaded).
+    # Never serialized.
+    policy_cfg: dict[str, Any] | None = None
 
     @classmethod
     def from_toml(cls, path: str) -> "SimLabConfig":

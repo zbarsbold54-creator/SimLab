@@ -941,3 +941,44 @@ Raw verification output:
 All checks passed!
 backward_compat hash=d3e1532311768f52 cap_pct=100.0%
 ```
+
+## Phase 8 â€” Architecture GUI panel
+
+Status: panel complete; committed as `gui-arch-v0`.
+
+- `simlab/training/arch_spec.py` (torch-free): `ArchSpec` metadata, registry
+  (`register_arch`/`add_spec`), dataclass field schema (min/max/choices/help),
+  `validate_config`/`normalize_config` from the spec alone, `arch_hash`,
+  `build_policy_cfg`, TOML save/load, `scan_plugin_dir` (errors collected, never
+  raised) and `write_template`. Built-in backbone specs (gru/transformer/rda)
+  with lazy loaders; drive-core specs registered beside their classes in
+  `simlab/plugins/drive_cores.py`.
+- `simlab/gui/architecture.py`: **ArchitectureWidget** â€” backbone/drive-core/
+  fusion/obs-mode dropdowns, a form auto-generated from the selected spec's
+  fields (spinboxes/combos/checkboxes), Rescan, plugin error list, New-template
+  button, Build (torch loads lazily in a BuilderThread; shows param count and
+  architecture hash), Apply-to-world, checkpoint playback, and save/load
+  experiment TOML under `runs/`. `_ProcessLauncher` streams CLI train/eval via
+  QProcess with a Stop button. The panel never names a specific architecture.
+- `simlab/gui/main_window.py`: new Architecture dock; `_apply_arch` drives the
+  existing world view with the built policy/checkpoint.
+- `simlab/core/config.py`: `drive_config` and `policy_cfg` runtime-injected
+  (never serialized) fields; `worker_components.py` passes them through.
+- `simlab/training/ppo.py`: `PPOConfig.arch`; `_build_net` builds from the arch
+  selection and falls back to the legacy GRU path; `_WorkerEnv` wires the drive
+  core from the arch. `simlab/cli.py`: `train --arch <toml>`.
+- Tests (`tests/test_gui_architecture.py`, offscreen): no-torch import
+  subprocess (sentinel `TORCH_PRESENT=False`), a form per registered spec,
+  dropdown-driven form rebuild, save/load round-trip, user-plugin discovery and
+  broken-plugin error handling, Build via button, rda stub error.
+- Verified: 82 tests pass, ruff clean, `eval --compare` no STALE, and a
+  2-iteration smoke train via `train --arch` completes end-to-end.
+
+Raw verification output:
+
+```text
+82 passed in 47.76s
+All checks passed!
+heuristic: vs heuristic BETTER  (eval --compare, no STALE)
+smoke train --arch -> runs\smoke_train
+```

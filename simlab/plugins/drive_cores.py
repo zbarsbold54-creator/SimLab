@@ -8,11 +8,13 @@ imported here.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 
 from simlab.core.registry import register
+from simlab.training.arch_spec import add_spec
 
 DRIVE_NAMES = (
     "novelty",
@@ -158,3 +160,45 @@ class RDA8DriveCore:
 register("drive", "none")(NoneDriveCore)
 register("drive", "constant")(ConstantDriveCore)
 register("drive", "rda8")(RDA8DriveCore)
+
+
+@dataclass
+class ConstantConfig:
+    value: float = field(
+        default=0.5,
+        metadata={"min": 0.0, "max": 1.0, "help": "Constant drive value (0..1)."},
+    )
+
+
+@dataclass
+class RDA8Config:
+    decay: float = field(
+        default=0.9,
+        metadata={"min": 0.0, "max": 1.0, "help": "EMA decay for the drive array."},
+    )
+
+
+add_spec(
+    "drive_core",
+    "none",
+    description="Zero drive vector; no observation dependence.",
+    config=None,
+    loader=lambda: NoneDriveCore,
+    source=__name__,
+)
+add_spec(
+    "drive_core",
+    "constant",
+    description="Constant drive vector, configurable via value.",
+    config=ConstantConfig,
+    loader=lambda: ConstantDriveCore,
+    source=__name__,
+)
+add_spec(
+    "drive_core",
+    "rda8",
+    description="Recurrent drive array E[t]=decay*E[t-1]+(1-decay)*drive[t].",
+    config=RDA8Config,
+    loader=lambda: RDA8DriveCore,
+    source=__name__,
+)
