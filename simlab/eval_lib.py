@@ -102,9 +102,7 @@ def run_episode_metrics(
         }
     alive = set(world._agents)
     for step in range(1, cap + 1):
-        result = runner.run_step(
-            include_observations=False, include_agent_states=False
-        )
+        result = runner.run_step(include_observations=False, include_agent_states=False)
         for aid in list(alive):
             st = world._agents[aid]
             m = meta[aid]
@@ -146,9 +144,7 @@ def run_episode_metrics(
                 ),
                 "food_eaten": m["food_eaten"],
                 "hazard_contacts": m["n_hazard_contacts"],
-                "mean_energy": round(
-                    m["energy_sum"] / max(1, m["steps_alive"]), 4
-                ),
+                "mean_energy": round(m["energy_sum"] / max(1, m["steps_alive"]), 4),
             }
         )
     per_agent.sort(key=lambda a: a["death_step"])
@@ -167,15 +163,16 @@ def bootstrap_cap_ci(
         sample = rng.integers(0, n_seeds, size=n_seeds)
         cnt = sum(len(classes_by_seed[i]) for i in sample)
         cap_cnt = sum(
-            sum(1 for cls in classes_by_seed[i] if cls == "truncation")
-            for i in sample
+            sum(1 for cls in classes_by_seed[i] if cls == "truncation") for i in sample
         )
         caps.append(100.0 * cap_cnt / cnt)
     caps.sort()
     return caps[int(0.025 * len(caps))], caps[int(0.975 * len(caps))]
 
 
-def aggregate(results: list[dict[str, Any]], wall_time: float, cap: int) -> dict[str, Any]:
+def aggregate(
+    results: list[dict[str, Any]], wall_time: float, cap: int
+) -> dict[str, Any]:
     """Collapse per-seed results into the summary dict + canonical hash."""
     results = sorted(results, key=lambda r: r["seed"])
     classes_by_seed = [[a["class"] for a in r["per_agent"]] for r in results]
@@ -228,6 +225,7 @@ def compare_to_baselines(
     agents: int,
     policy: str,
     allow_stale: bool = False,
+    seed_set: str | None = None,
 ) -> dict[str, Any]:
     """Verdicts against the docs/baselines.json reference table.
 
@@ -238,14 +236,23 @@ def compare_to_baselines(
     if not baseline_path.exists():
         return {
             "stale": [],
-            "verdicts": [{"against": "baselines.json", "verdict": "MISSING BASELINES FILE"}],
+            "verdicts": [
+                {"against": "baselines.json", "verdict": "MISSING BASELINES FILE"}
+            ],
         }
     doc = json.loads(baseline_path.read_text(encoding="utf-8"))
-    scenario = doc.get("scenarios", {}).get(baseline_key)
+    scenarios = doc.get("scenarios")
+    if scenarios is None and seed_set is not None:
+        scenarios = doc.get("seed_sets", {}).get(seed_set, {}).get("scenarios")
+    if scenarios is None:
+        scenarios = doc.get("scenarios", {})
+    scenario = scenarios.get(baseline_key)
     if not scenario:
         return {
             "stale": [],
-            "verdicts": [{"against": baseline_key, "verdict": "MISSING SCENARIO BASELINE"}],
+            "verdicts": [
+                {"against": baseline_key, "verdict": "MISSING SCENARIO BASELINE"}
+            ],
         }
 
     current_config_hash = resolved_config_hash(config_path, agents)

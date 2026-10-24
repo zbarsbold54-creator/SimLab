@@ -159,6 +159,21 @@ class OracleHeuristicAvoid(OracleHeuristicPolicyNoflee):
             for h in hazards
         )
 
+    # Patches below this remaining amount are treated as crumbs: the energy
+    # gained per bite (the amount) is less than the movement cost of grazing
+    # them, so they are only selected when no fuller patch exists.
+    AMOUNT_EPSILON = 0.5
+
+    @staticmethod
+    def _pick_seed_target(pool):
+        # pool: list of (dist2, target, amount). Prefer the nearest patch
+        # with a meaningful remaining amount; if every candidate is a crumb,
+        # fall back to the largest remaining amount (least depleted).
+        big = [c for c in pool if c[2] > OracleHeuristicAvoid.AMOUNT_EPSILON]
+        if big:
+            return min(big, key=lambda s: s[0])[1]
+        return max(pool, key=lambda s: s[2])[1]
+
     def _select_food(self, position, food, hazards):
         r = self.hazard_detection + self.FLEE_MARGIN
         r2 = r * r
@@ -174,11 +189,11 @@ class OracleHeuristicAvoid(OracleHeuristicPolicyNoflee):
                 (h[0] - target[0]) ** 2 + (h[1] - target[1]) ** 2 <= r2
                 for h in hazards
             )
-            (unsafe if risky else safe).append((d2, target))
+            (unsafe if risky else safe).append((d2, target, amount))
         if safe:
-            return min(safe, key=lambda s: s[0])[1]
+            return self._pick_seed_target(safe)
         if unsafe:
-            return min(unsafe, key=lambda s: s[0])[1]
+            return self._pick_seed_target(unsafe)
         return None
 
     def _escape_dir(self, position, hazards) -> tuple[float, float]:

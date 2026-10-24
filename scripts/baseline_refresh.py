@@ -70,11 +70,11 @@ def json_entry(s: dict[str, Any], policy: str) -> dict[str, Any]:
     }
 
 
-def main() -> None:
+def run_grid(seed_offset: int) -> dict[str, Any]:
     tasks = []
     for _key, _label, config_path, agents in SCENARIOS:
         for policy in POLICIES:
-            for seed in range(SEEDS):
+            for seed in range(seed_offset, seed_offset + SEEDS):
                 tasks.append((config_path, policy, agents, seed))
 
     with Pool() as pool:
@@ -111,23 +111,57 @@ def main() -> None:
             "config_hash": resolved_config_hash(config_path, agents),
             "policies": policies,
         }
+    return scenarios_json
 
-    short_hash = subprocess.run(
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed-offset", type=int, default=None)
+    args = parser.parse_args()
+
+    if args.seed_offset is not None:
+        sets = {"set": run_grid(args.seed_offset)}
+        doc = {
+            "generated": datetime.now(UTC).isoformat(),
+            "commit": _short_hash(),
+            "seed_list": list(range(args.seed_offset, args.seed_offset + SEEDS)),
+            "step_cap": CAP,
+            "scenarios": sets["set"],
+        }
+        out = REPO / "docs" / "baselines.json"
+        out.write_text(json.dumps(doc, indent=2, sort_keys=True), encoding="utf-8")
+        print(f"\nwrote {out.relative_to(REPO)} (commit {doc['commit']})")
+        return
+
+    dev = run_grid(0)
+    test = run_grid(1000)
+    doc = {
+        "generated": datetime.now(UTC).isoformat(),
+        "commit": _short_hash(),
+        "step_cap": CAP,
+        "scenarios": dev,
+        "seed_sets": {
+            "dev": {"seed_list": list(range(SEEDS)), "scenarios": dev},
+            "test": {
+                "seed_list": list(range(1000, 1000 + SEEDS)),
+                "scenarios": test,
+            },
+        },
+    }
+    out = REPO / "docs" / "baselines.json"
+    out.write_text(json.dumps(doc, indent=2, sort_keys=True), encoding="utf-8")
+    print(f"\nwrote {out.relative_to(REPO)} (commit {doc['commit']})")
+
+
+def _short_hash() -> str:
+    return subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"],
         capture_output=True,
         text=True,
         check=False,
     ).stdout.strip()
-    doc = {
-        "generated": datetime.now(UTC).isoformat(),
-        "commit": short_hash,
-        "seed_list": list(range(SEEDS)),
-        "step_cap": CAP,
-        "scenarios": scenarios_json,
-    }
-    out = REPO / "docs" / "baselines.json"
-    out.write_text(json.dumps(doc, indent=2, sort_keys=True), encoding="utf-8")
-    print(f"\nwrote {out.relative_to(REPO)} (commit {short_hash})")
 
 
 if __name__ == "__main__":

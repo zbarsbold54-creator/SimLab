@@ -800,3 +800,41 @@ Committed as "Achievability check", tagged `world-v1.5`.
   250-1001, 50-100% flee fraction). Flee instinct never overtakes pursuit.
 - The "Hard" preset is hazard-bound (12 hazards); food supply scaling is at
   supply_ratio 2.0.
+
+## Round 10 - Reference policy and seed protocol (world-v1.6)
+
+### Step 1 - diagnose oracle_avoid starvation
+diag_oracle_starve.py (grid) and diag_oracle_focus.py (single-seed trace)
+identified crumb-camping: the oracle targeted a patch whose remaining amount
+equalled the per-step regrowth (0.0168), draining it while paying a larger
+movement cost; energy slowly eroded. This explained 46%/24% starvation on
+Balanced/Hard 5 with ~360 of 400 food units uneaten.
+
+### Step 2 - fix oracle_avoid (iteration 1, final)
+_select_food now skips patches with remaining amount <= AMOUNT_EPSILON=0.5
+when a fuller patch exists, else picks the largest remaining amount. Dev seeds
+0-19: Balanced 5 cap 98% [95,100] (starve=2/hazard=0/trunc=98); Hard 5 cap
+96% [91,100] (starve=0/hazard=4/trunc=96). Target met after iteration 1
+(Balanced NOT WORSE; Hard BETTER with starvation <10%).
+
+### Step 3 - seed protocol
+Added --seed-offset to eval CLI and baseline_refresh.py. Dev seeds 0-19; test
+seeds 1000-1019. docs/baselines.json regenerated with seed_sets.dev and
+seed_sets.test (config + policy hashes). oracle_avoid test seeds: Balanced 5
+cap 99% [97,100] BETTER; Hard 5 cap 93% [87,98] BETTER - verdicts match dev.
+
+### Step 4 - known limitation
+Recorded in docs/BASELINES.md: the heuristic loses agents pinned at walls/corners
+while fleeing though 4x faster than hazards; headroom for learned policies is
+wall/corner escape.
+
+### Step 5 - docs/LEARNER_API.md
+Written: obs layout (rays/ray_types/proprioception/agent_position), Action
+fields, drive_state order, reset/step signatures, get_state/set_state snapshot
+hooks, episode lifecycle, throughput (1 agent 3279.8 steps/s, 5 agents 1200.1
+steps/s single-process), torch policy allowance, eval/compare commands on dev
+and test seeds.
+
+### Step 6 - suite, ruff, commit, tag
+Full suite 59 passed; ruff clean. Committed as "Reference policy and seed
+protocol", tagged world-v1.6.

@@ -10,7 +10,10 @@ To evaluate a candidate policy against these baselines:
 
 - Run the Balanced rows for 1, 5, and 20 agents, plus Solo, at 20 seeds, cap
   10000 (the same grid as `scripts/baseline_refresh.py`).
-- Use the seed list `range(20)` (0..19).
+- Seed protocol: tune a policy on dev seeds 0..19 only; report final results on
+  held-out test seeds 1000..1019 (`--seed-offset 1000`). Baselines for both
+  seed sets are stored in `docs/baselines.json` under `seed_sets.dev` and
+  `seed_sets.test`.
 - Report for each cell: cap percent with its 95% bootstrap CI (resampled over
   seeds, not agents), median survival step, and the death-cause split
   (starvation / hazard / truncation).
@@ -157,20 +160,44 @@ sensor-heuristic flee thrust 0.8 gives 6.4 units/s (3.2x). The binding limit is
 wall/corner trapping, not raw speed: baseline hazard-death traces show agents
 pinned at a boundary while the hazard parks on top (distance -> 0).
 
-5-agent results (20 seeds, cap 10000, bootstrap CIs over seeds):
+5-agent results (20 seeds, cap 10000, bootstrap CIs over seeds), dev seeds
+0..19 first, test seeds 1000..1019 in parentheses:
 
 | Scenario | Policy | cap% | CI | median | starve | hazard | trunc | food_left |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Balanced | oracle_avoid | 54.0 | [45.0, 64.0] | 10000 | 46 | 0 | 54 | 361.8 |
-| Hard | oracle_avoid | 74.0 | [63.0, 85.0] | 10000 | 24 | 2 | 74 | 345.9 |
+| Balanced | oracle_avoid (dev) | 98.0 | [95.0, 100.0] | 10000 | 2 | 0 | 98 | 323.9 |
+| Balanced | oracle_avoid (test) | 99.0 | [97.0, 100.0] | 10000 | 0 | 1 | 99 | 323.9 |
+| Hard | oracle_avoid (dev) | 96.0 | [91.0, 100.0] | 10000 | 0 | 4 | 96 | 314.7 |
+| Hard | oracle_avoid (test) | 93.0 | [87.0, 98.0] | 10000 | 2 | 5 | 93 | 318.8 |
 
-Verdict (Hard 5): `oracle_avoid` is **BETTER** than `heuristic` (CI [63, 85]
-does not overlap [32, 60]), so headroom exists and the Hard benchmark is
-meaningful. On Balanced 5 the heuristic already saturates (80%), so oracle_avoid
-is WORSE there (its hazard avoidance reduces feeding and adds starvation) —
-Balanced is not the discriminating cell. Reproduce each cell with:
+An earlier version of `oracle_avoid` starved (46% on Balanced, 24% on Hard) by
+crumb-camping: it targeted a patch whose remaining amount was exactly the
+per-step regrowth (0.0168), draining that regrowth while paying a larger
+movement cost, so energy slowly eroded. It now skips patches with remaining
+amount <= `AMOUNT_EPSILON = 0.5` when any fuller patch exists (falling back to
+the largest remaining amount otherwise), so it never idles while real food
+exists.
+
+Verdict (Hard 5): `oracle_avoid` is **BETTER** than `heuristic` on both dev
+(CI [91, 100] vs [40, 75]) and test seeds (CI [87, 98] vs heuristic's row in
+`seed_sets.test`), with starvation effectively eliminated. On Balanced 5 it is
+also BETTER now that starvation is fixed (saturates at 98-99%). The oracle
+remains a reference probe, not a baseline. Reproduce each cell with:
 
 ```
 python -m simlab.cli eval --policy oracle_avoid --scenario hard --agents 5 --seeds 20 --cap 10000 --workers 4 --compare
+python -m simlab.cli eval --policy oracle_avoid --scenario hard --agents 5 --seeds 20 --cap 10000 --workers 4 --compare --seed-offset 1000
 python -m simlab.cli eval --policy oracle_avoid --scenario balanced --agents 5 --seeds 20 --cap 10000 --workers 4 --compare
+python -m simlab.cli eval --policy oracle_avoid --scenario balanced --agents 5 --seeds 20 --cap 10000 --workers 4 --compare --seed-offset 1000
 ```
+
+## Known baseline limitation
+
+The sensor heuristic (`heuristic`) loses agents by getting pinned at walls and
+corners while fleeing: a hazard that parks on the boundary traps the agent
+against the wall (distance -> 0) even though the agent moves 4x faster than the
+hazard (8.0 vs 2.0 units/s) and could outrun it in open space. This is a
+behavioral defect of the baseline, not a physics ceiling. Headroom for learned
+policies therefore lives in wall and corner escape, not in raw speed. The
+baseline heuristic is intentionally frozen; this limitation is recorded here so
+a learned policy can target it.

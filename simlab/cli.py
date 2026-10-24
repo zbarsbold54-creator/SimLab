@@ -29,9 +29,12 @@ def main(argv: list[str] | None = None) -> int:
     evalp = subs.add_parser("eval")
     evalp.add_argument("--policy", required=True)
     evalp.add_argument("--drive", default="simple")
-    evalp.add_argument("--scenario", choices=["balanced", "solo", "hard"], required=True)
+    evalp.add_argument(
+        "--scenario", choices=["balanced", "solo", "hard"], required=True
+    )
     evalp.add_argument("--agents", type=int, required=True)
     evalp.add_argument("--seeds", type=int, default=20)
+    evalp.add_argument("--seed-offset", type=int, default=0)
     evalp.add_argument("--cap", type=int, default=10000)
     evalp.add_argument("--workers", type=int, default=4)
     evalp.add_argument("--out", default=None)
@@ -67,14 +70,18 @@ def run_eval(args: argparse.Namespace) -> int:
         scenario_baseline_key,
     )
 
-    config_path = str(REPO / {
-        "balanced": "configs/balanced.toml",
-        "solo": "configs/solo.toml",
-        "hard": "configs/hard.toml",
-    }[args.scenario])
+    config_path = str(
+        REPO
+        / {
+            "balanced": "configs/balanced.toml",
+            "solo": "configs/solo.toml",
+            "hard": "configs/hard.toml",
+        }[args.scenario]
+    )
+    seed_start = getattr(args, "seed_offset", 0)
     tasks = [
         (args.policy, args.drive, seed, args.agents, args.cap, config_path)
-        for seed in range(args.seeds)
+        for seed in range(seed_start, seed_start + args.seeds)
     ]
     start = time.monotonic()
     with Pool(processes=max(1, args.workers)) as pool:
@@ -83,7 +90,9 @@ def run_eval(args: argparse.Namespace) -> int:
     agg = aggregate(results, wall, args.cap)
 
     s = agg
-    print(f"policy={args.policy} drive={args.drive} scenario={args.scenario} agents={args.agents}")
+    print(
+        f"policy={args.policy} drive={args.drive} scenario={args.scenario} agents={args.agents}"
+    )
     print(f"seeds={args.seeds} cap={args.cap} workers={args.workers}")
     print(
         f"cap_pct={s['cap_pct']:.1f}% 95%CI=[{s['ci'][0]:.1f},{s['ci'][1]:.1f}] "
@@ -112,6 +121,7 @@ def run_eval(args: argparse.Namespace) -> int:
     if args.compare:
         baseline = REPO / "docs" / "baselines.json"
         key = scenario_baseline_key(args.scenario, args.agents)
+        seed_set = "test" if seed_start >= 1000 else "dev"
         res = compare_to_baselines(
             agg,
             key,
@@ -120,11 +130,14 @@ def run_eval(args: argparse.Namespace) -> int:
             args.agents,
             args.policy,
             args.allow_stale,
+            seed_set=seed_set,
         )
         for reason in res["stale"]:
             print(f"STALE: {reason}")
         if res["stale"] and not args.allow_stale:
-            print("refusing verdicts (baselines out of date); use --allow-stale to override")
+            print(
+                "refusing verdicts (baselines out of date); use --allow-stale to override"
+            )
         for entry in res["verdicts"]:
             print(f"vs {entry['against']:<18}: {entry['verdict']}")
     return 0
